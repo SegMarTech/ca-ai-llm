@@ -1,261 +1,246 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CA AI Assistant</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CA AI Assistant Chat</title>
+
+<!-- Prism.js CSS for code highlighting -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism.min.css" />
 
 <style>
-  :root {
-    --primary: #f6821f;
-    --primary-dark: #e67e22;
-    --bg: #f4f6f8;
-    --card-bg: #ffffff;
-    --border: #e5e7eb;
-    --text: #1f2937;
-    --muted: #6b7280;
-    --user-bg: #fff2e6;
-    --assistant-bg: #f3f4f6;
-    --dark-bg: #1f2937;
-    --dark-card-bg: #111827;
-    --dark-text: #f9fafb;
-    --dark-muted: #9ca3af;
-  }
+:root {
+  --primary-color: #f6821f;
+  --primary-hover: #e67e22;
+  --light-bg: #f9fafb;
+  --dark-bg: #1f1f1f;
+  --border-color: #e5e7eb;
+  --text-color: #1f2937;
+  --text-light: #6b7280;
+  --user-msg-bg: #fff2e6;
+  --assistant-msg-bg: #f3f4f6;
+  --copy-btn-bg: #e5e7eb;
+}
 
-  body {
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    display: flex;
-    justify-content: center;
-    padding: 1rem;
-  }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  color: var(--text-color);
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1rem;
+  background-color: var(--light-bg);
+}
 
-  .app {
-    width: 100%;
-    max-width: 900px;
-    display: flex;
-    flex-direction: column;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-    background: var(--card-bg);
-    height: calc(100vh - 2rem);
-  }
+header {
+  text-align: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
 
-  /* HEADER */
-  header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--border);
-    position: relative;
-  }
+h1 {
+  color: var(--primary-color);
+  font-size: 1.5rem;
+}
 
-  .logo {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    background: var(--primary);
-    color: white;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 200px);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: white;
+}
 
-  header h1 {
-    margin: 0;
-    font-size: 1.1rem;
-  }
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  background-color: var(--light-bg);
+  scroll-behavior: smooth;
+}
 
-  header p {
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
+.message {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  max-width: 80%;
+}
 
-  /* DOMAIN SELECTOR */
-  #domain-selector {
-    position: absolute;
-    right: 1rem;
-    top: 1rem;
-    padding: 0.3rem 0.5rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: white;
-    font-size: 0.85rem;
-  }
+.message .avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
 
-  /* CHAT */
-  .chat-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
+.user-message .avatar {
+  background-color: var(--primary-color);
+  color: white;
+}
 
-  .chat-messages {
-    flex: 1;
-    padding: 1.25rem;
-    overflow-y: auto;
-    background: var(--bg);
-  }
+.assistant-message .avatar {
+  background-color: var(--text-light);
+  color: white;
+}
 
-  .message {
-    display: flex;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-    max-width: 85%;
-  }
+.user-message {
+  flex-direction: row-reverse;
+  margin-left: auto;
+  background-color: var(--user-msg-bg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px 12px 0 12px;
+}
 
-  .message p {
-    padding: 0.75rem 0.9rem;
-    border-radius: 10px;
-    white-space: pre-wrap;
-    line-height: 1.5;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-  }
+.assistant-message {
+  background-color: var(--assistant-msg-bg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px 12px 12px 0;
+}
 
-  .assistant-message { align-self: flex-start; }
-  .assistant-message p { background: var(--assistant-bg); }
+.message-input {
+  display: flex;
+  padding: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  background-color: white;
+  gap: 0.5rem;
+}
 
-  .user-message { align-self: flex-end; flex-direction: row-reverse; }
-  .user-message p { background: var(--user-bg); }
+#user-input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-family: inherit;
+  resize: none;
+  min-height: 44px;
+}
 
-  .avatar {
-    width: 32px; height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem; font-weight: 600;
-    flex-shrink: 0;
-  }
+#send-button {
+  padding: 0 1rem;
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
 
-  .assistant-message .avatar { background: var(--primary); color: white; }
-  .user-message .avatar { background: #d1d5db; color: #374151; }
+#send-button:hover {
+  background-color: var(--primary-hover);
+}
 
-  /* SOURCES */
-  .sources {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin-top: 0.3rem;
-    padding-left: 0.75rem;
-    border-left: 2px solid var(--border);
-    display: none;
-  }
+#send-button:disabled {
+  background-color: var(--text-light);
+  cursor: not-allowed;
+}
 
-  .source-toggle { cursor: pointer; color: var(--primary); font-size: 0.75rem; margin-top: 0.25rem; display: inline-block; }
+.typing-indicator {
+  font-style: italic;
+  color: var(--text-light);
+  padding: 0.5rem 1rem;
+  display: none;
+}
 
-  /* TYPING */
-  .typing-indicator {
-    padding: 0.75rem 1.25rem;
-    font-size: 0.85rem;
-    color: var(--muted);
-    display: none;
-  }
+.typing-indicator.visible {
+  display: block;
+}
 
-  .typing-indicator.visible { display: block; }
+footer {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-light);
+}
 
-  /* INPUT */
-  .message-input {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.75rem;
-    border-top: 1px solid var(--border);
-    background: white;
-  }
+.copy-btn {
+  margin-top: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background-color: var(--copy-btn-bg);
+}
 
-  #user-input {
-    flex: 1;
-    resize: none;
-    padding: 0.6rem 0.75rem;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    font-family: inherit;
-    font-size: 0.95rem;
-    min-height: 44px;
-  }
+.copy-btn:hover {
+  background-color: var(--primary-hover);
+  color: white;
+}
 
-  #send-button {
-    padding: 0 1.2rem;
-    border-radius: 8px;
-    border: none;
-    background: var(--primary);
-    color: white;
-    font-weight: 600;
-    cursor: pointer;
-  }
+.sources {
+  margin-top: 0.5rem;
+  padding-left: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-light);
+}
 
-  #send-button:hover { background: var(--primary-dark); }
-  #send-button:disabled { opacity: 0.6; cursor: not-allowed; }
-
-  /* FOOTER */
-  footer { text-align: center; font-size: 0.75rem; color: var(--muted); padding: 0.5rem; }
-
-  /* DARK MODE */
-  body.dark-mode { background: var(--dark-bg); color: var(--dark-text); }
-  body.dark-mode .app { background: var(--dark-card-bg); }
-  body.dark-mode header p, body.dark-mode .sources { color: var(--dark-muted); }
+.source-toggle {
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.85rem;
+  color: var(--primary-color);
+  margin-top: 0.5rem;
+  display: inline-block;
+}
+.domain-select {
+  margin-bottom: 0.5rem;
+  padding: 0.25rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  font-size: 0.9rem;
+}
 </style>
 </head>
-
 <body>
-<div class="app">
-  <header>
-    <div class="logo">CA</div>
-    <div>
-      <h1>CA AI Assistant</h1>
-      <p>Tax • GST • Audit • Compliance • Advisory</p>
-    </div>
-    <select id="domain-selector">
-      <option value="">All Domains</option>
-      <option value="GST">GST</option>
-      <option value="Income Tax">Income Tax</option>
-      <option value="Audit">Audit</option>
-      <option value="ROC">ROC / MCA</option>
-      <option value="Compliance">Compliance</option>
-    </select>
-  </header>
 
-  <div class="chat-container">
-    <div id="chat-messages" class="chat-messages">
-      <div class="message assistant-message">
-        <div class="avatar">AI</div>
-        <p>Hello! I’m your Chartered Accountant AI assistant. How can I help you today?</p>
-      </div>
-    </div>
+<header>
+  <h1>CA AI Assistant</h1>
+  <p>Powered by Cloudflare Workers AI</p>
+  <select id="domain-selector" class="domain-select">
+    <option value="">All Domains</option>
+    <option value="Direct Tax">Direct Tax</option>
+    <option value="Indirect Tax">Indirect Tax</option>
+    <option value="Audit">Audit</option>
+    <option value="Accounting">Accounting</option>
+    <option value="ROC">ROC</option>
+    <option value="Financial Advisory">Financial Advisory</option>
+    <option value="International Tax">International Tax</option>
+    <option value="ESG">ESG</option>
+  </select>
+</header>
 
-    <div id="typing-indicator" class="typing-indicator">
-      AI is analysing and responding…
-    </div>
-
-    <div class="message-input">
-      <textarea id="user-input" placeholder="Ask about GST, Income Tax, Audit, notices, compliance…" rows="1" autofocus></textarea>
-      <button id="send-button">Send</button>
+<div class="chat-container">
+  <div id="chat-messages" class="chat-messages">
+    <div class="message assistant-message">
+      <div class="avatar">AI</div>
+      <div>Hello! I'm your Chartered Accountant AI assistant. How can I help you today?</div>
     </div>
   </div>
 
-  <footer>
-    Professional guidance only · Verify with latest laws & ICAI guidance · <span id="dark-toggle" style="cursor:pointer;color:var(--primary)">🌙 Dark Mode</span>
-  </footer>
+  <div class="typing-indicator" id="typing-indicator">AI is thinking...</div>
+
+  <div class="message-input">
+    <textarea id="user-input" placeholder="Type your message here..." rows="1" autofocus></textarea>
+    <button id="send-button">Send</button>
+  </div>
 </div>
 
+<footer>
+  Cloudflare Workers AI Chat Template &copy; 2025
+</footer>
+
+<!-- Prism.js & Marked.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- Chat logic -->
 <script src="chat.js"></script>
-<script>
-  // Dark mode toggle
-  const darkToggle = document.getElementById('dark-toggle');
-  darkToggle.addEventListener('click', () => document.body.classList.toggle('dark-mode'));
 
-  // Enable showing sources
-  function toggleSources(el) {
-    const sourcesEl = el.nextElementSibling;
-    if (sourcesEl) sourcesEl.style.display = sourcesEl.style.display === 'block' ? 'none' : 'block';
-  }
-
-  window.toggleSources = toggleSources; // Expose to chat.js
-</script>
 </body>
 </html>
