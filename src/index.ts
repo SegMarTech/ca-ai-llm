@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker API Endpoint – Streaming RAG CA Assistant
+ * Cloudflare Worker – Streaming CA AI Assistant (STABLE)
  */
 
 import { Env, ChatMessage, VectorChunk } from "./types";
@@ -7,60 +7,33 @@ import { Env, ChatMessage, VectorChunk } from "./types";
 const SCOUT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const COMPLEX_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-const ALLOWED_ORIGIN = "*";
-
 /* -------------------- SYSTEM PROMPT -------------------- */
 
 const CA_SYSTEM_PROMPT = `
 You are an AI Chartered Accountant assistant.
 
 Scope:
-- Direct Tax (Income Tax, TDS/TCS, Appeals)
-- Indirect Tax (GST)
-- Audit & Assurance
-- Accounting & Bookkeeping
-- ROC & Corporate Law
-- Financial Advisory & Valuation
-- Management Accounting & CFO advisory
-- International Tax & FEMA
-- Litigation & Representation
-- ESG, IBC, Emerging Areas
+Direct Tax, GST, Audit, Accounting, ROC, Financial Advisory,
+Management Accounting, International Tax, Litigation, ESG, IBC.
 
 Rules:
 - Do NOT hallucinate.
 - Use ONLY provided context.
-- If context is insufficient, say so clearly.
+- If context is insufficient, say so.
 - Cite sections as (verify).
-- Ask clarifying questions if required.
 - End EVERY response with:
 
 "This is professional guidance only. Verify with latest laws, notifications, and ICAI guidance."
 `;
 
-/* -------------------- CORS -------------------- */
+/* -------------------- SIMPLE GUARDS -------------------- */
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
-function withCors(res: Response): Response {
-  const headers = new Headers(res.headers);
-  Object.entries(CORS_HEADERS).forEach(([k, v]) => headers.set(k, v));
-  return new Response(res.body, { status: res.status, headers });
+function detectPromptInjection(q: string): boolean {
+  return /(ignore system|bypass|act as)/i.test(q);
 }
 
-/* -------------------- GUARDS -------------------- */
-
-function detectPromptInjection(query: string): boolean {
-  return /(ignore system|bypass|act as)/i.test(query);
-}
-
-function classifyQuery(query: string): "simple" | "complex" {
-  return /(appeal|itat|cit|transfer pricing|audit|litigation|notice|computation)/i.test(
-    query
-  )
+function classifyQuery(q: string): "simple" | "complex" {
+  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
     ? "complex"
     : "simple";
 }
@@ -97,97 +70,93 @@ function buildContext(vectors: VectorChunk[]): string {
 /* -------------------- WORKER -------------------- */
 
 export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext) {
-    if (req.method === "OPTIONS")
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+  async fetch(req: Request, env: Env) {
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
 
-    if (new URL(req.url).pathname !== "/api/chat")
+    if (new URL(req.url).pathname !== "/api/chat") {
       return new Response("Not Found", { status: 404 });
+    }
 
-    return withCors(await handleChat(req, env));
-  },
-} satisfies ExportedHandler<Env>;
+    const { query } = await req.json();
 
-/* -------------------- CHAT (STREAMING SSE) -------------------- */
+    if (!query?.trim()) {
+      return new Response("Empty query", { status: 400 });
+    }
 
-async function handleChat(req: Request, env: Env): Promise<Response> {
-  const { query } = await req.json();
+    if (detectPromptInjection(query)) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
-  if (!query?.trim())
-    return new Response(JSON.stringify({ error: "Empty query" }), { status: 400 });
+    const model =
+      classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
 
-  if (detectPromptInjection(query))
-    return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 });
+    const vectors = await retrieveVectors(env, query);
+    const context = buildContext(vectors);
 
-  const complexity = classifyQuery(query);
-  const model = complexity === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `${CA_SYSTEM_PROMPT}\n\nContext (verify):\n${context}`,
+      },
+      { role: "user", content: query },
+    ];
 
-  const vectors = await retrieveVectors(env, query);
-  const context = buildContext(vectors);
-
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: `${CA_SYSTEM_PROMPT}\n\nContext (verify):\n${context}`,
-    },
-    { role: "user", content: query },
-  ];
-
-  const aiResponse = await env.AI.run(
-    model,
-    {
+    /* -------- 1️⃣ RUN MODEL (NON-STREAMING) -------- */
+    const aiResult = await env.AI.run(model, {
       messages,
       max_tokens: 2200,
       temperature: 0.15,
-      top_p: 0.85,
-    },
-    { returnRawResponse: true }
-  );
+    });
 
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
+    const answer =
+      (aiResult as any).response ??
+      "Unable to generate a response from the model.";
 
-  let fullAnswer = "";
+    /* -------- 2️⃣ STREAM MANUALLY (SSE) -------- */
+    const encoder = new TextEncoder();
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const reader = (aiResponse as Response).body!.getReader();
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        fullAnswer += chunk;
+    const stream = new ReadableStream({
+      async start(controller) {
+        for (const char of answer) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`)
+          );
+          await new Promise(r => setTimeout(r, 5)); // typing effect
+        }
 
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ token: chunk })}\n\n`)
+          encoder.encode(
+            `data: ${JSON.stringify({
+              done: true,
+              sources: vectors.map(v => ({
+                source: v.metadata.source,
+                snippet: v.metadata.text_snippet,
+              })),
+            })}\n\n`
+          )
         );
-      }
 
-      controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({
-            done: true,
-            answer: fullAnswer,
-            sources: vectors.map(v => ({
-              source: v.metadata.source,
-              snippet: v.metadata.text_snippet,
-            })),
-          })}\n\n`
-        )
-      );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
 
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
-}
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  },
+} satisfies ExportedHandler<Env>;
