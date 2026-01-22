@@ -1,5 +1,5 @@
 /**
- * Cloudflare Workers AI Chat UI
+ * Cloudflare Workers AI Chat UI – SSE Streaming
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -10,75 +10,90 @@ const typingIndicator = document.getElementById("typing-indicator");
 let chatHistory = [];
 let isProcessing = false;
 
-userInput.addEventListener("keydown", e => {
+sendButton.onclick = sendMessage;
+userInput.onkeydown = e => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
-});
-
-sendButton.addEventListener("click", sendMessage);
+};
 
 async function sendMessage() {
-  const message = userInput.value.trim();
-  if (!message || isProcessing) return;
+  const query = userInput.value.trim();
+  if (!query || isProcessing) return;
 
   isProcessing = true;
   userInput.disabled = true;
   sendButton.disabled = true;
 
-  addMessage("user", message);
-  chatHistory.push({ role: "user", content: message });
-
+  addMessage("user", query);
   userInput.value = "";
   typingIndicator.classList.add("visible");
 
-  const assistantEl = addMessage("assistant", "");
+  const assistantP = addMessage("assistant", "");
 
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: message,
-        messages: chatHistory,
-      }),
+      body: JSON.stringify({ query, messages: chatHistory }),
     });
 
-    const text = await res.text(); // 🔑 read full body once
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
 
-    let output = text;
+    let buffer = "";
+    let finalAnswer = "";
 
-    // ✅ Handle JSON response
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed.answer) {
-        output = parsed.answer;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+
+        if (!raw.startsWith("data:")) continue;
+        const payload = raw.replace("data:", "").trim();
+
+        if (payload === "[DONE]") break;
+
+        const parsed = JSON.parse(payload);
+
+        if (parsed.token) {
+          finalAnswer += parsed.token;
+          assistantP.textContent = finalAnswer;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        if (parsed.done) {
+          chatHistory.push({
+            role: "assistant",
+            content: parsed.answer,
+          });
+        }
       }
-    } catch (_) {
-      // Not JSON → treat as plain text
     }
-
-    assistantEl.textContent = output;
-    chatHistory.push({ role: "assistant", content: output });
   } catch (err) {
-    assistantEl.textContent =
-      "Sorry, something went wrong while processing your request.";
+    assistantP.textContent =
+      "Error while streaming response. Please try again.";
     console.error(err);
   } finally {
     typingIndicator.classList.remove("visible");
     isProcessing = false;
     userInput.disabled = false;
     sendButton.disabled = false;
-    userInput.focus();
   }
 }
 
-function addMessage(role, content) {
+function addMessage(role, text) {
   const div = document.createElement("div");
   div.className = `message ${role}-message`;
   const p = document.createElement("p");
-  p.textContent = content;
+  p.textContent = text;
   div.appendChild(p);
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
