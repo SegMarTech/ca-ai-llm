@@ -1,5 +1,5 @@
 /**
- * Cloudflare Workers AI Chat UI – SSE Streaming
+ * Chat UI – SSE compatible with Worker
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -7,7 +7,6 @@ const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 
-let chatHistory = [];
 let isProcessing = false;
 
 sendButton.onclick = sendMessage;
@@ -36,14 +35,13 @@ async function sendMessage() {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, messages: chatHistory }),
+      body: JSON.stringify({ query }),
     });
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-
     let buffer = "";
-    let finalAnswer = "";
+    let finalText = "";
 
     while (true) {
       const { value, done } = await reader.read();
@@ -59,33 +57,26 @@ async function sendMessage() {
         if (!raw.startsWith("data:")) continue;
         const payload = raw.replace("data:", "").trim();
 
-        if (payload === "[DONE]") break;
+        if (payload === "[DONE]") return;
 
         const parsed = JSON.parse(payload);
 
         if (parsed.token) {
-          finalAnswer += parsed.token;
-          assistantP.textContent = finalAnswer;
+          finalText += parsed.token;
+          assistantP.textContent = finalText;
           chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        if (parsed.done) {
-          chatHistory.push({
-            role: "assistant",
-            content: parsed.answer,
-          });
         }
       }
     }
-  } catch (err) {
-    assistantP.textContent =
-      "Error while streaming response. Please try again.";
-    console.error(err);
+  } catch (e) {
+    assistantP.textContent = "Error generating response.";
+    console.error(e);
   } finally {
     typingIndicator.classList.remove("visible");
     isProcessing = false;
     userInput.disabled = false;
     sendButton.disabled = false;
+    userInput.focus();
   }
 }
 
