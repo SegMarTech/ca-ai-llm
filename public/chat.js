@@ -1,5 +1,5 @@
 /**
- * LLM Chat App Frontend (FIXED for /api/chat)
+ * LLM Chat App Frontend – FIXED for Cloudflare Workers AI streaming
  */
 
 const chatMessages = document.getElementById("chat-messages");
@@ -17,7 +17,7 @@ let chatHistory = [
 
 let isProcessing = false;
 
-/* Auto resize textarea */
+/* Auto resize */
 userInput.addEventListener("input", function () {
   this.style.height = "auto";
   this.style.height = this.scrollHeight + "px";
@@ -42,84 +42,55 @@ async function sendMessage() {
   sendButton.disabled = true;
 
   addMessageToChat("user", message);
+  chatHistory.push({ role: "user", content: message });
 
   userInput.value = "";
   userInput.style.height = "auto";
-
   typingIndicator.classList.add("visible");
 
-  chatHistory.push({ role: "user", content: message });
+  const assistantMessageEl = document.createElement("div");
+  assistantMessageEl.className = "message assistant-message";
+  assistantMessageEl.innerHTML = "<p></p>";
+  chatMessages.appendChild(assistantMessageEl);
+  const assistantTextEl = assistantMessageEl.querySelector("p");
 
   try {
-    const assistantMessageEl = document.createElement("div");
-    assistantMessageEl.className = "message assistant-message";
-    assistantMessageEl.innerHTML = "<p></p>";
-    chatMessages.appendChild(assistantMessageEl);
-
-    const assistantTextEl = assistantMessageEl.querySelector("p");
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    /* 🔑 FIX: send BOTH query + messages */
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: message,          // ← REQUIRED by backend
-        messages: chatHistory,   // ← for conversation memory
+        query: message,
+        messages: chatHistory,
       }),
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    if (!response.body) {
-      throw new Error("Empty response body");
+    if (!response.ok || !response.body) {
+      throw new Error("Invalid response");
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
-    let responseText = "";
+
+    let finalText = "";
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-
-      const parsed = consumeSseEvents(buffer);
-      buffer = parsed.buffer;
-
-      for (const data of parsed.events) {
-        if (data === "[DONE]") break;
-
-        try {
-          const json = JSON.parse(data);
-          const content =
-            json.response ||
-            json.choices?.[0]?.delta?.content ||
-            "";
-
-          if (content) {
-            responseText += content;
-            assistantTextEl.textContent = responseText;
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-          }
-        } catch {
-          /* ignore partial chunks */
-        }
-      }
+      // 🔑 Workers AI streams RAW text, not SSE
+      const chunk = decoder.decode(value, { stream: true });
+      finalText += chunk;
+      assistantTextEl.textContent = finalText;
+      chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    if (responseText) {
-      chatHistory.push({ role: "assistant", content: responseText });
+    if (finalText.trim()) {
+      chatHistory.push({ role: "assistant", content: finalText });
     }
   } catch (err) {
     console.error(err);
-    addMessageToChat(
-      "assistant",
-      "Sorry, an error occurred while processing your request."
-    );
+    assistantTextEl.textContent =
+      "Sorry, there was an error processing your request.";
   } finally {
     typingIndicator.classList.remove("visible");
     isProcessing = false;
@@ -135,26 +106,4 @@ function addMessageToChat(role, content) {
   el.innerHTML = `<p>${content}</p>`;
   chatMessages.appendChild(el);
   chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function consumeSseEvents(buffer) {
-  buffer = buffer.replace(/\r/g, "");
-  const events = [];
-
-  let idx;
-  while ((idx = buffer.indexOf("\n\n")) !== -1) {
-    const raw = buffer.slice(0, idx);
-    buffer = buffer.slice(idx + 2);
-
-    const dataLines = raw
-      .split("\n")
-      .filter(l => l.startsWith("data:"))
-      .map(l => l.slice(5).trim());
-
-    if (dataLines.length) {
-      events.push(dataLines.join("\n"));
-    }
-  }
-
-  return { events, buffer };
 }
