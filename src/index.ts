@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker – Streaming CA AI Assistant (WITH HISTORY + CORS)
+ * Cloudflare Worker – Streaming CA AI Assistant (Optimized for < 1s TTFT)
  */
 
 import { Env, ChatMessage, VectorChunk } from "./types";
@@ -7,15 +7,11 @@ import { Env, ChatMessage, VectorChunk } from "./types";
 const SCOUT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const COMPLEX_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-/* -------------------- CORS HEADERS -------------------- */
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
-
-/* -------------------- SYSTEM PROMPT -------------------- */
 
 const CA_SYSTEM_PROMPT = `
 You are an AI Chartered Accountant assistant with professional-level knowledge.
@@ -59,89 +55,25 @@ Mandatory Disclaimer (end every response with this exact line in bold and italic
 "This is professional guidance only. Verify with latest laws, notifications, judicial precedents, and ICAI guidance."
 `;
 
-
-/* -------------------- SIMPLE GUARDS -------------------- */
+/* -------------------- HELPERS -------------------- */
 
 function detectPromptInjection(q: string): boolean {
   return /(ignore system|bypass|act as)/i.test(q);
 }
 
 function classifyQuery(q: string): "simple" | "complex" {
-  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
+  // Broadening the fast-path regex to ensure complex models handle hard tasks
+  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing|penalty|assessment|ind as|gst refund)/i.test(q)
     ? "complex"
     : "simple";
 }
 
-/*async function classifyQuery(query: string, env: Env): Promise<"simple" | "complex"> {
-  // 1️⃣ Quick keyword check (fast path)
-  const complexKeywords = [
-    "appeal","itat","audit","notice","litigation","computation","transfer pricing",
-    "penalty","assessment","rectification","revision","advance ruling",
-    "gst audit","input tax credit","gst notice","gst refund","gst compliance","gst filing",
-    "roc filing","annual return","board resolution","share allotment","capital reduction","company incorporation",
-    "fema","cross border","double taxation","tax treaty","foreign remittance","international tax",
-    "ifrs","ind as","financial statement","consolidation","audit report","valuation",
-    "ibc","insolvency","bankruptcy","moratorium","corporate debtor","resolution plan",
-    "esg","risk management","fraud investigation","forensic audit","management advisory"
-  ];
-
-  const regex = new RegExp(complexKeywords.join("|"), "i");
-
-  if (regex.test(query)) {
-    return "complex"; // obvious complex query
-  }
-
-  // 2️⃣ AI fallback for ambiguous queries
-  try {
-    const response = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", {
-      input: `
-        Classify the following CA-related query as either "simple" or "complex":
-        - "simple" = straightforward factual question or easy calculation
-        - "complex" = requires professional reasoning, multi-step computation, or domain expertise
-        Question: "${query}"
-        Answer with only "simple" or "complex".
-      `
-    });
-
-    const result = response.output_text.trim().toLowerCase();
-    return result === "complex" ? "complex" : "simple";
-  } catch (err) {
-    console.error("AI classification failed, defaulting to simple:", err);
-    return "simple"; // fail-safe
-  }
-}*/
-
-
-/* -------------------- VECTOR RETRIEVAL -------------------- */
-
-async function retrieveVectors(
-  env: Env,
-  query: string,
-  topK = 5
-): Promise<VectorChunk[]> {
-  // 1️⃣ Generate embedding for the query
+async function retrieveVectors(env: Env, query: string, topK = 4): Promise<VectorChunk[]> {
   const embeddingRes = await env.AI.run("@cf/baai/bge-large-en-v1.5", { text: query });
-
   const vector = embeddingRes.data[0];
-  console.log("Embedding length:", vector.length);
-
-  // 2️⃣ Query Vectorize via binding
-  const result = await env.VECTORIZE.query(vector, {
-    topK,
-    returnMetadata: true
-  });
-
-  const matches = result.matches ?? [];
-  console.log(`Vectorize matches: ${matches.length}`);
-  matches.forEach((m, i) => {
-    console.log(`Match ${i + 1}: score=${m.score}, metadata keys=${Object.keys(m.metadata || {}).length}`);
-  });
-
-  return matches;
+  const result = await env.VECTORIZE.query(vector, { topK, returnMetadata: true });
+  return result.matches ?? [];
 }
-
-
-
 
 function buildContext(vectors: VectorChunk[]): string {
   return vectors
@@ -154,108 +86,72 @@ function buildContext(vectors: VectorChunk[]): string {
 
 export default {
   async fetch(req: Request, env: Env) {
-    /* ---- CORS Preflight ---- */
-    if (req.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    if (new URL(req.url).pathname !== "/api/chat") {
-      return new Response("Not Found", { status: 404, headers: corsHeaders });
-    }
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
+    if (new URL(req.url).pathname !== "/api/chat") return new Response("Not Found", { status: 404 });
 
     try {
-      const body = await req.json() as {
-        query: string;
-        history?: ChatMessage[];
-      };
-
+      const body = await req.json() as { query: string; history?: ChatMessage[] };
       const query = body.query?.trim();
-      console.log("Query:", query);
-      const history = Array.isArray(body.history) ? body.history : [];
+      if (!query) return new Response("Empty query", { status: 400, headers: corsHeaders });
+      if (detectPromptInjection(query)) return new Response("Forbidden", { status: 403 });
 
-      if (!query) {
-        return new Response("Empty query", { status: 400, headers: corsHeaders });
-      }
-
-      if (detectPromptInjection(query)) {
-        return new Response("Forbidden", { status: 403, headers: corsHeaders });
-      }
-
-      /* ---- Model selection ---- */
-      const model =
-        classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
-
-      /* ---- Vector context ---- */
+      const model = classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
       const vectors = await retrieveVectors(env, query);
       const context = buildContext(vectors);
+      const trimmedHistory = (body.history || []).slice(-6);
 
-      /* ---- Trim history (last 3 turns = 6 messages) ---- */
-      const trimmedHistory = history.slice(-6);
-
-      /* ---- Build messages ---- */
       const messages: ChatMessage[] = [
-        {
-          role: "system",
-          content: `${CA_SYSTEM_PROMPT}\n\nContext (verify):\n${context}`,
-        },
+        { role: "system", content: `${CA_SYSTEM_PROMPT}\n\nContext (verify):\n${context}` },
         ...trimmedHistory,
         { role: "user", content: query },
       ];
 
-      /* ---- Run model ---- */
-      const aiResult = await env.AI.run(model, {
+      // 1. RUN WITH STREAM: TRUE
+      // This returns a ReadableStream immediately rather than waiting for completion.
+      const aiResponse = await env.AI.run(model, {
         messages,
         max_tokens: 2200,
         temperature: 0.15,
+        stream: true,
       });
 
-      const answer =
-        (aiResult as any)?.response ?? "Unable to generate a response.";
-
-      /* ---- SSE Stream ---- */
-      const encoder = new TextEncoder();
-
-      const stream = new ReadableStream({
-        async start(controller) {
-          for (const char of answer) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`)
-            );
-            await new Promise(r => setTimeout(r, 5));
-          }
-
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                done: true,
-                sources: vectors.map(v => ({
-                  source: v.metadata.source,
-                  snippet: v.metadata.text_snippet,
-                })),
-              })}\n\n`
-            )
-          );
-
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
+      // 2. TRANSFORM STREAM FOR SSE FORMATTING
+      // We use a TransformStream to pass through AI tokens and then append metadata at the end.
+      const { readable, writable } = new TransformStream({
+        transform(chunk, controller) {
+          // Pass the raw AI stream chunk directly to the client
+          controller.enqueue(chunk);
         },
+        flush(controller) {
+          // Append sources and the [DONE] signal once the AI is finished
+          const encoder = new TextEncoder();
+          const footer = {
+            done: true,
+            sources: vectors.map(v => ({
+              source: v.metadata.source,
+              snippet: v.metadata.text_snippet,
+            })),
+          };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(footer)}\n\n`));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        }
       });
 
-      return new Response(stream, {
+      // Pipe the AI result into our transformer
+      aiResponse.pipeTo(writable);
+
+      return new Response(readable, {
         headers: {
           ...corsHeaders,
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          Connection: "keep-alive",
+          "Connection": "keep-alive",
         },
       });
 
     } catch (err) {
       console.error("Worker error:", err);
-      return new Response("Internal Error", {
-        status: 500,
-        headers: corsHeaders,
-      });
+      return new Response("Internal Error", { status: 500, headers: corsHeaders });
     }
   },
 } satisfies ExportedHandler<Env>;
