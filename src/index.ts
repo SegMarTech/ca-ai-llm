@@ -66,11 +66,51 @@ function detectPromptInjection(q: string): boolean {
   return /(ignore system|bypass|act as)/i.test(q);
 }
 
-function classifyQuery(q: string): "simple" | "complex" {
+/*function classifyQuery(q: string): "simple" | "complex" {
   return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
     ? "complex"
     : "simple";
+}*/
+
+async function classifyQuery(query: string, env: Env): Promise<"simple" | "complex"> {
+  // 1️⃣ Quick keyword check (fast path)
+  const complexKeywords = [
+    "appeal","itat","audit","notice","litigation","computation","transfer pricing",
+    "penalty","assessment","rectification","revision","advance ruling",
+    "gst audit","input tax credit","gst notice","gst refund","gst compliance","gst filing",
+    "roc filing","annual return","board resolution","share allotment","capital reduction","company incorporation",
+    "fema","cross border","double taxation","tax treaty","foreign remittance","international tax",
+    "ifrs","ind as","financial statement","consolidation","audit report","valuation",
+    "ibc","insolvency","bankruptcy","moratorium","corporate debtor","resolution plan",
+    "esg","risk management","fraud investigation","forensic audit","management advisory"
+  ];
+
+  const regex = new RegExp(complexKeywords.join("|"), "i");
+
+  if (regex.test(query)) {
+    return "complex"; // obvious complex query
+  }
+
+  // 2️⃣ AI fallback for ambiguous queries
+  try {
+    const response = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", {
+      input: `
+        Classify the following CA-related query as either "simple" or "complex":
+        - "simple" = straightforward factual question or easy calculation
+        - "complex" = requires professional reasoning, multi-step computation, or domain expertise
+        Question: "${query}"
+        Answer with only "simple" or "complex".
+      `
+    });
+
+    const result = response.output_text.trim().toLowerCase();
+    return result === "complex" ? "complex" : "simple";
+  } catch (err) {
+    console.error("AI classification failed, defaulting to simple:", err);
+    return "simple"; // fail-safe
+  }
 }
+
 
 /* -------------------- VECTOR RETRIEVAL -------------------- */
 
