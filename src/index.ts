@@ -87,29 +87,19 @@ async function retrieveVectors(
 
   const vector = embeddingRes.data[0];
   console.log("Embedding length:", vector.length);
+  console.log("Embedding :", vector);
 
-  // 2️⃣ Query Vectorize using the vector
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/vectorize/v2/indexes/${env.VECTOR_INDEX}/query`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.CF_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        vector,
-        top_k: topK,
-        return_metadata: true
-      }),
-    }
-  );
+  // 2️⃣ Query Vectorize via binding (NO fetch, NO auth)
+  const result = await env.VECTORIZE.query(vector, {
+    topK,
+    returnMetadata: true
+  });
 
-  const json: any = await res.json();
-  console.log("Vectorize response:", json);
+  console.log("Vectorize matches:", result.matches?.length ?? 0);
 
-  return json.success ? json.result.matches : [];
+  return result.matches ?? [];
 }
+
 
 
 function buildContext(vectors: VectorChunk[]): string {
@@ -139,6 +129,7 @@ export default {
       };
 
       const query = body.query?.trim();
+      console.log("Query:", query);
       const history = Array.isArray(body.history) ? body.history : [];
 
       if (!query) {
