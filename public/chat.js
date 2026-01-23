@@ -1,199 +1,224 @@
 /**
- * CA AI Assistant Chat – SSE streaming + Markdown + Sources + Copy
+ * CA Sahab AI Assistant - Professional Chat Logic
  */
 
-// Load marked dynamically if not already included
-if (!window.marked) {
-  const script = document.createElement("script");
-  script.src =
-    "https://cdn.jsdelivr.net/npm/marked/marked.min.js";
-  document.head.appendChild(script);
-}
-
-// Prism.js for code highlighting
-if (!window.Prism) {
-  const prismCSS = document.createElement("link");
-  prismCSS.rel = "stylesheet";
-  prismCSS.href =
-    "https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism.min.css";
-  document.head.appendChild(prismCSS);
-
-  const prismScript = document.createElement("script");
-  prismScript.src =
-    "https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js";
-  document.head.appendChild(prismScript);
-}
-
-const chatMessages = document.getElementById("chat-messages");
-const userInput = document.getElementById("user-input");
-const sendButton = document.getElementById("send-button");
-const typingIndicator = document.getElementById("typing-indicator");
-const domainSelector = document.getElementById("domain-selector");
+// Configuration & State
+const CONFIG = {
+    DISCLAIMER: "\n\n*This is professional guidance only. Verify with latest laws, notifications, and ICAI guidance.*",
+    MARKDOWN_OPTIONS: { gfm: true, breaks: true }
+};
 
 let isProcessing = false;
 
+// DOM Elements
+const chatMessages = document.getElementById("chat-messages");
+const userInput = document.getElementById("user-input");
+const sendButton = document.getElementById("send-button");
+const domainSelector = document.getElementById("domain-selector");
+const fileInput = document.getElementById("file-input");
+
+// Initialization
+document.addEventListener('DOMContentLoaded', () => {
+    userInput.focus();
+});
+
+// Event Listeners
 sendButton.onclick = sendMessage;
+
 userInput.onkeydown = (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
 };
 
+/**
+ * Main Message Sending Function
+ */
 async function sendMessage() {
-  const query = userInput.value.trim();
-  const domain = domainSelector?.value;
+    const query = userInput.value.trim();
+    const domain = domainSelector?.value;
 
-  if (!query || isProcessing) return;
+    if (!query || isProcessing) return;
 
-  isProcessing = true;
-  userInput.disabled = true;
-  sendButton.disabled = true;
+    // UI Lock
+    toggleLoading(true);
+    
+    // Add User Message
+    appendMessage("user", query);
+    userInput.value = "";
+    userInput.style.height = 'auto'; // Reset textarea height
 
-  addMessage("user", query, true);
-  userInput.value = "";
-  typingIndicator.classList.add("visible");
+    // Prepare Assistant Placeholder
+    const { messageDiv, textContainer } = createAssistantPlaceholder();
+    
+    try {
+        const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, domain }),
+        });
 
-  // Assistant placeholder
-  const assistantDiv = document.createElement("div");
-  assistantDiv.className = "message assistant-message";
-  const avatar = document.createElement("div");
-  avatar.className = "avatar";
-  avatar.textContent = "AI";
-  const p = document.createElement("div"); // render Markdown here
-  p.innerHTML = "";
-  assistantDiv.appendChild(avatar);
-  assistantDiv.appendChild(p);
-  chatMessages.appendChild(assistantDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+        if (!response.ok) throw new Error("Connection failed");
 
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, domain }),
-    });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullText = "";
+        let sources = [];
 
-    if (!res.ok || !res.body) {
-      throw new Error("Invalid response from server");
-    }
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let finalText = "";
-    let sources = [];
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n\n");
+            buffer = lines.pop(); // Keep partial line in buffer
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
+            for (const line of lines) {
+                if (!line.startsWith("data:")) continue;
+                const data = line.replace("data:", "").trim();
+                if (data === "[DONE]") break;
 
-      buffer += decoder.decode(value, { stream: true });
-
-      let idx;
-      while ((idx = buffer.indexOf("\n\n")) !== -1) {
-        const raw = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-
-        if (!raw.startsWith("data:")) continue;
-        const payload = raw.replace("data:", "").trim();
-        if (payload === "[DONE]") break;
-
-        let parsed;
-        try {
-          parsed = JSON.parse(payload);
-        } catch (e) {
-          console.error("Invalid JSON:", payload);
-          continue;
+                try {
+                    const parsed = JSON.parse(data);
+                    if (parsed.token) {
+                        fullText += parsed.token;
+                        textContainer.innerHTML = marked.parse(fullText, CONFIG.MARKDOWN_OPTIONS);
+                        autoScroll();
+                    }
+                    if (parsed.sources) sources = parsed.sources;
+                } catch (e) {
+                    console.error("JSON Parse Error", e);
+                }
+            }
         }
 
-        // Streaming token updates
-        if (parsed.token) {
-          finalText += parsed.token;
-          p.innerHTML = marked.parse(finalText);
-          Prism.highlightAll();
-          chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
+        // Finalize Response
+        finalizeAssistantResponse(messageDiv, textContainer, fullText, sources);
 
-        // Capture sources
-        if (parsed.sources) {
-          sources = parsed.sources;
-        }
-      }
+    } catch (err) {
+        textContainer.innerHTML = `<span style="color: #ef4444;">Sorry, I encountered an error. Please try again later.</span>`;
+        console.error(err);
+    } finally {
+        toggleLoading(false);
     }
-
-    // Append disclaimer if missing
-    if (
-      !finalText.includes(
-        "This is professional guidance only. Verify with latest laws, notifications, and ICAI guidance."
-      )
-    ) {
-      finalText +=
-        "\n\nThis is professional guidance only. Verify with latest laws, notifications, and ICAI guidance.";
-      p.innerHTML = marked.parse(finalText);
-      Prism.highlightAll();
-    }
-
-    // Copy button
-    const copyBtn = document.createElement("button");
-    copyBtn.textContent = "Copy Answer";
-    copyBtn.className = "copy-btn";
-    copyBtn.onclick = () => navigator.clipboard.writeText(finalText);
-    assistantDiv.appendChild(copyBtn);
-
-    // Sources toggle
-    if (sources.length) {
-      const toggleBtn = document.createElement("span");
-      toggleBtn.className = "source-toggle";
-      toggleBtn.innerText = "Show / Hide Sources";
-      toggleBtn.onclick = () => {
-        const el = toggleBtn.nextElementSibling;
-        if (el) el.style.display = el.style.display === "block" ? "none" : "block";
-      };
-
-      const sourcesDiv = document.createElement("div");
-      sourcesDiv.className = "sources";
-      sourcesDiv.style.display = "none";
-      sourcesDiv.innerHTML = sources
-        .map(
-          (s, i) =>
-            `<div>${i + 1}. <strong>${s.source}</strong>: ${s.text_snippet?.substring(
-              0,
-              150
-            )}...</div>`
-        )
-        .join("");
-
-      assistantDiv.appendChild(toggleBtn);
-      assistantDiv.appendChild(sourcesDiv);
-    }
-  } catch (err) {
-    p.textContent = "Error generating response.";
-    console.error(err);
-  } finally {
-    typingIndicator.classList.remove("visible");
-    isProcessing = false;
-    userInput.disabled = false;
-    sendButton.disabled = false;
-    userInput.focus();
-  }
 }
 
-function addMessage(role, text, useMarkdown = false) {
-  const div = document.createElement("div");
-  div.className = `message ${role}-message`;
+/**
+ * UI Helper: Create the structure for AI response
+ */
+function createAssistantPlaceholder() {
+    const assistantDiv = document.createElement("div");
+    assistantDiv.className = "message assistant-message";
+    
+    assistantDiv.innerHTML = `
+        <div class="avatar">AI</div>
+        <div class="bubble">
+            <div class="assistant-content"></div>
+            <div class="assistant-meta"></div>
+        </div>
+    `;
+    
+    chatMessages.appendChild(assistantDiv);
+    return { 
+        messageDiv: assistantDiv, 
+        textContainer: assistantDiv.querySelector(".assistant-content") 
+    };
+}
 
-  const avatar = document.createElement("div");
-  avatar.className = "avatar";
-  avatar.textContent = role === "user" ? "U" : "AI";
+/**
+ * UI Helper: Append User Message
+ */
+function appendMessage(role, text) {
+    const div = document.createElement("div");
+    div.className = `message ${role}-message`;
+    div.innerHTML = `
+        <div class="avatar">${role === 'user' ? 'U' : 'AI'}</div>
+        <div class="bubble">${marked.parse(text)}</div>
+    `;
+    chatMessages.appendChild(div);
+    autoScroll();
+}
 
-  const p = document.createElement("div");
-  p.innerHTML = useMarkdown ? marked.parse(text) : text;
+/**
+ * Adds Copy button, Sources, and Disclaimer
+ */
+function finalizeAssistantResponse(container, contentDiv, text, sources) {
+    // 1. Add Disclaimer
+    if (!text.includes("professional guidance")) {
+        text += CONFIG.DISCLAIMER;
+        contentDiv.innerHTML = marked.parse(text);
+    }
 
-  div.appendChild(avatar);
-  div.appendChild(p);
-  chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+    // 2. Syntax Highlighting
+    if (window.Prism) Prism.highlightAllUnder(contentDiv);
 
-  return p;
+    // 3. Add Metadata Row (Copy Button & Sources)
+    const metaDiv = container.querySelector(".assistant-meta");
+    metaDiv.style.marginTop = "10px";
+    metaDiv.style.display = "flex";
+    metaDiv.style.gap = "15px";
+    metaDiv.style.alignItems = "center";
+
+    // Copy Button
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "icon-btn";
+    copyBtn.innerHTML = `<i data-lucide="copy" style="width:14px"></i> <span style="font-size:12px">Copy</span>`;
+    copyBtn.onclick = () => {
+        navigator.clipboard.writeText(text);
+        copyBtn.innerHTML = `<i data-lucide="check" style="width:14px"></i> <span style="font-size:12px">Copied</span>`;
+        setTimeout(() => {
+            copyBtn.innerHTML = `<i data-lucide="copy" style="width:14px"></i> <span style="font-size:12px">Copy</span>`;
+            lucide.createIcons();
+        }, 2000);
+        lucide.createIcons();
+    };
+    metaDiv.appendChild(copyBtn);
+
+    // Sources Toggle
+    if (sources && sources.length > 0) {
+        const sourceBtn = document.createElement("button");
+        sourceBtn.className = "icon-btn";
+        sourceBtn.innerHTML = `<i data-lucide="library" style="width:14px"></i> <span style="font-size:12px">Sources (${sources.length})</span>`;
+        
+        const sourcePanel = document.createElement("div");
+        sourcePanel.className = "sources-panel";
+        sourcePanel.style.display = "none";
+        sourcePanel.style.marginTop = "10px";
+        sourcePanel.style.fontSize = "0.8rem";
+        sourcePanel.style.padding = "10px";
+        sourcePanel.style.background = "#f3f4f6";
+        sourcePanel.style.borderRadius = "8px";
+        
+        sourcePanel.innerHTML = sources.map((s, i) => `
+            <div style="margin-bottom:8px; border-bottom:1px solid #e5e7eb; padding-bottom:4px;">
+                <strong>${i+1}. ${s.source}</strong><br/>
+                <span style="color:#6b7280">${s.text_snippet?.substring(0, 120)}...</span>
+            </div>
+        `).join("");
+
+        sourceBtn.onclick = () => {
+            sourcePanel.style.display = sourcePanel.style.display === "none" ? "block" : "none";
+        };
+
+        metaDiv.appendChild(sourceBtn);
+        container.querySelector(".bubble").appendChild(sourcePanel);
+    }
+
+    lucide.createIcons();
+}
+
+/**
+ * Utilities
+ */
+function toggleLoading(active) {
+    isProcessing = active;
+    userInput.disabled = active;
+    sendButton.disabled = active;
+    // Show/hide a simple dot-animation or text in your HTML if you prefer
+}
+
+function autoScroll() {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
