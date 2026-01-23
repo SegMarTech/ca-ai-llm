@@ -79,6 +79,15 @@ async function retrieveVectors(
   query: string,
   topK = 5
 ): Promise<VectorChunk[]> {
+  // 1️⃣ Generate embedding for the query
+  const embeddingRes = await env.AI.run(
+    "@cf/baai/bge-large-en-v1.5",
+    { text: query }
+  );
+
+  const vector = embeddingRes.data[0];
+
+  // 2️⃣ Query Vectorize using the vector
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/vectorize/v2/indexes/${env.VECTOR_INDEX}/query`,
     {
@@ -87,13 +96,19 @@ async function retrieveVectors(
         Authorization: `Bearer ${env.CF_API_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ query, top_k: topK }),
+      body: JSON.stringify({
+        vector,
+        top_k: topK,
+        return_metadata: true
+      }),
     }
   );
 
   const json: any = await res.json();
+
   return json.success ? json.result.matches : [];
 }
+
 
 function buildContext(vectors: VectorChunk[]): string {
   return vectors
