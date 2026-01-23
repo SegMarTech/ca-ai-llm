@@ -3,181 +3,318 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CA Sahab | Professional AI Assistant</title>
+    <title>CA Sahab | AI Tax & Audit Assistant</title>
 
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
 
     <style>
         :root {
             --primary: #f6821f;
-            --primary-soft: #fff7ed;
-            --sidebar-bg: #111827;
-            --bg-chat: #f9fafb;
-            --border: #e5e7eb;
-            --radius-lg: 16px;
-            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            --primary-dark: #e6761b;
+            --secondary: #1e293b;
+            --bg-app: #f8fafc;
+            --bg-card: #ffffff;
+            --border: #e2e8f0;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --user-msg: #f6821f;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height: 100vh; overflow: hidden; }
 
-        /* Sidebar */
-        aside { width: 260px; background: var(--sidebar-bg); color: white; display: flex; flex-direction: column; padding: 1.25rem; }
-        .new-chat { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 0.75rem; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; margin-bottom: 2rem; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-app);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header Navigation */
+        header {
+            background: var(--bg-card);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
+        }
+
+        .brand-box h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand-box p {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .domain-select {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #fff;
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .domain-select:hover { border-color: var(--primary); }
 
         /* Main Chat Area */
-        main { flex: 1; display: flex; flex-direction: column; background: var(--bg-chat); position: relative; }
-        header { padding: 1rem 2rem; background: rgba(255,255,255,0.8); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-        
-        #chat-messages { flex: 1; overflow-y: auto; padding: 2rem 15%; display: flex; flex-direction: column; gap: 1.5rem; }
+        .chat-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1100px;
+            width: 100%;
+            margin: 0 auto;
+            background: var(--bg-card);
+            position: relative;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar { width: 6px; }
+        .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 
         /* Message Bubbles */
-        .message { display: flex; gap: 1rem; max-width: 900px; animation: fadeIn 0.3s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        
-        .avatar { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.8rem; flex-shrink: 0; }
-        .assistant-message .avatar { background: var(--primary); color: white; }
-        .user-message { flex-direction: row-reverse; }
-        .user-message .avatar { background: #374151; color: white; }
+        .message {
+            display: flex;
+            gap: 1rem;
+            max-width: 85%;
+            animation: slideUp 0.3s ease-out;
+        }
 
-        .bubble { padding: 1rem 1.25rem; border-radius: var(--radius-lg); font-size: 0.95rem; line-height: 1.6; box-shadow: 0 1px 2px rgba(0,0,0,0.05); max-width: 80%; }
-        .assistant-message .bubble { background: white; border: 1px solid var(--border); }
-        .user-message .bubble { background: var(--primary); color: white; }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-        /* Input Area */
-        .input-container { padding: 1.5rem 15%; background: var(--bg-chat); }
-        .input-wrapper { background: white; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.75rem 1rem; display: flex; align-items: flex-end; gap: 10px; box-shadow: var(--shadow-md); }
-        textarea { flex: 1; border: none; outline: none; padding: 0.5rem 0; font-family: inherit; font-size: 1rem; resize: none; max-height: 200px; }
-        
-        .icon-btn { background: none; border: none; color: #6b7280; cursor: pointer; padding: 5px; border-radius: 6px; }
-        .send-btn { background: var(--primary) !important; color: white !important; width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+        .avatar {
+            width: 35px;
+            height: 35px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.7rem;
+            flex-shrink: 0;
+        }
 
-        .sources-panel { background: #f3f4f6; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 0.8rem; }
-        
-        @media (max-width: 800px) { aside { display: none; } #chat-messages, .input-container { padding: 1rem; } }
+        .msg-body {
+            padding: 1rem 1.25rem;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            position: relative;
+        }
+
+        /* Assistant Styling */
+        .assistant-message { align-self: flex-start; }
+        .assistant-message .avatar { background: var(--secondary); color: white; }
+        .assistant-message .msg-body {
+            background: #f1f5f9;
+            color: var(--text-main);
+            border-top-left-radius: 2px;
+        }
+
+        /* User Styling */
+        .user-message { align-self: flex-end; flex-direction: row-reverse; }
+        .user-message .avatar { background: var(--primary); color: white; }
+        .user-message .msg-body {
+            background: var(--primary);
+            color: white;
+            border-top-right-radius: 2px;
+            box-shadow: 0 4px 15px rgba(246, 130, 31, 0.2);
+        }
+
+        /* Input Section */
+        .input-area {
+            padding: 1.5rem 2rem;
+            border-top: 1px solid var(--border);
+            background: #fff;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 0.75rem;
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            padding: 0.5rem;
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+
+        .input-container:focus-within {
+            border-color: var(--primary);
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(246, 130, 31, 0.1);
+        }
+
+        #user-input {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 0.6rem 1rem;
+            font-family: inherit;
+            font-size: 1rem;
+            outline: none;
+            resize: none;
+            min-height: 24px;
+            max-height: 200px;
+        }
+
+        #send-button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0 1.25rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        #send-button:hover { background: var(--primary-dark); }
+        #send-button:disabled { background: var(--text-muted); cursor: not-allowed; }
+
+        /* Helpers */
+        .typing-indicator {
+            padding: 0.5rem 2rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .typing-indicator.visible { display: flex; }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid rgba(0,0,0,0.1);
+            padding: 4px 8px;
+            font-size: 0.7rem;
+            border-radius: 4px;
+            margin-top: 10px;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: 0.2s;
+        }
+
+        .copy-btn:hover { background: #fff; color: var(--primary); }
+
+        .source-toggle {
+            display: block;
+            margin-top: 8px;
+            font-size: 0.75rem;
+            color: var(--primary);
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .sources {
+            margin-top: 8px;
+            padding: 10px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 6px;
+            font-size: 0.8rem;
+            border-left: 2px solid var(--primary);
+        }
+
+        footer {
+            text-align: center;
+            padding: 0.75rem;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            background: #fff;
+            border-top: 1px solid var(--border);
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            header { padding: 1rem; }
+            .chat-messages { padding: 1rem; }
+            .message { max-width: 95%; }
+        }
     </style>
 </head>
 <body>
 
-    <aside>
-        <button class="new-chat"><i data-lucide="plus"></i> New Chat</button>
-        <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; margin-bottom: 10px;">History</div>
-        <div style="font-size: 0.85rem; color: #9ca3af;">No recent chats</div>
-    </aside>
+<header>
+    <div class="brand-box">
+        <h1><span>💼</span> CA Sahab</h1>
+        <p>AI Compliance Expert</p>
+    </div>
+    <select id="domain-selector" class="domain-select">
+        <option value="">All Domains</option>
+        <option value="Direct Tax">Direct Tax</option>
+        <option value="Indirect Tax">Indirect Tax</option>
+        <option value="Audit">Audit</option>
+        <option value="Accounting">Accounting</option>
+        <option value="ROC">ROC</option>
+        <option value="Financial Advisory">Financial Advisory</option>
+        <option value="International Tax">International Tax</option>
+        <option value="ESG">ESG</option>
+    </select>
+</header>
 
-    <main>
-        <header>
-            <div>
-                <h1 style="font-size: 1.1rem; font-weight: 700;">CA Sahab</h1>
-                <p style="font-size: 0.7rem; color: #6b7280;">Income Tax & Audit Expert</p>
-            </div>
-            <select id="domain-selector" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border);">
-                <option>Direct Tax</option>
-                <option>GST</option>
-                <option>Audit</option>
-            </select>
-        </header>
-
-        <div id="chat-messages">
-            <div class="message assistant-message">
-                <div class="avatar">AI</div>
-                <div class="bubble">Hello! I am your CA Assistant. You can ask me about tax laws, balance sheet analysis, or audit procedures.</div>
+<div class="chat-wrapper">
+    <div id="chat-messages" class="chat-messages">
+        <div class="message assistant-message">
+            <div class="avatar">AI</div>
+            <div class="msg-body">
+                Hello! I'm your **Chartered Accountant AI assistant**. I can help with tax queries, audit standards, or ROC filings. What's on your mind?
             </div>
         </div>
+    </div>
 
+    <div class="typing-indicator" id="typing-indicator">
+        <span>●</span> AI is analyzing tax laws...
+    </div>
+
+    <div class="input-area">
         <div class="input-container">
-            <div class="input-wrapper">
-                <button class="icon-btn" onclick="document.getElementById('file-input').click()"><i data-lucide="paperclip"></i></button>
-                <input type="file" id="file-input" style="display:none">
-                <textarea id="user-input" placeholder="Type your query here..." rows="1"></textarea>
-                <button class="icon-btn send-btn" id="send-button"><i data-lucide="send-horizontal"></i></button>
-            </div>
-            <p style="text-align:center; font-size: 0.7rem; color: #9ca3af; margin-top: 10px;">Professional Guidance Only • Updated for FY 2024-25</p>
+            <textarea id="user-input" placeholder="Ask about GST, Income Tax, Section 44AB..." rows="1" autofocus></textarea>
+            <button id="send-button">Send</button>
         </div>
-    </main>
+    </div>
+</div>
 
-    <script>
-        // Initialize Icons
-        lucide.createIcons();
+<footer>
+    Disclaimer: For professional guidance only. Cross-verify with the latest Finance Acts and ICAI notifications.
+</footer>
 
-        const chatMessages = document.getElementById('chat-messages');
-        const userInput = document.getElementById('user-input');
-        const sendButton = document.getElementById('send-button');
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="chat.js"></script>
 
-        // Auto-resize textarea
-        userInput.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = (this.scrollHeight) + 'px';
-        });
-
-        // Send Message Logic
-        async function handleSend() {
-            const text = userInput.value.trim();
-            if (!text) return;
-
-            // 1. Add User Message to UI
-            appendMessage('user', text);
-            userInput.value = '';
-            userInput.style.height = 'auto';
-
-            // 2. Add Assistant Loading State
-            const { contentDiv, container } = createAssistantPlaceholder();
-            
-            // --- SIMULATION MODE ---
-            // Remove this block when you have a real backend API
-            setTimeout(() => {
-                const responseText = "### Analysis Complete\nBased on the data provided, the **Current Ratio** is healthy. However, you should check the **Section 43B(h)** compliance for MSME payments.\n\n*Would you like me to generate a checklist?*";
-                contentDiv.innerHTML = marked.parse(responseText);
-                addMessageActions(container, responseText);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }, 1000);
-            // -----------------------
-        }
-
-        function appendMessage(role, text) {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `message ${role}-message`;
-            msgDiv.innerHTML = `
-                <div class="avatar">${role === 'user' ? 'U' : 'AI'}</div>
-                <div class="bubble">${marked.parse(text)}</div>
-            `;
-            chatMessages.appendChild(msgDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        function createAssistantPlaceholder() {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'message assistant-message';
-            msgDiv.innerHTML = `
-                <div class="avatar">AI</div>
-                <div class="bubble">
-                    <div class="content">Thinking...</div>
-                    <div class="meta" style="margin-top:10px; display:flex; gap:10px;"></div>
-                </div>
-            `;
-            chatMessages.appendChild(msgDiv);
-            return { 
-                contentDiv: msgDiv.querySelector('.content'),
-                container: msgDiv.querySelector('.bubble')
-            };
-        }
-
-        function addMessageActions(container, text) {
-            const meta = container.querySelector('.meta');
-            meta.innerHTML = `
-                <button class="icon-btn" style="font-size:0.7rem; display:flex; align-items:center; gap:4px;" onclick="navigator.clipboard.writeText(\`${text}\`)">
-                    <i data-lucide="copy" style="width:12px"></i> Copy
-                </button>
-            `;
-            lucide.createIcons();
-        }
-
-        sendButton.onclick = handleSend;
-        userInput.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
-    </script>
 </body>
 </html>
