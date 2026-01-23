@@ -18,5 +18,11 @@
 	"ai": {
 		"binding": "AI"
 	},
+	 "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "ca-legal-index"
+    }
+  ],
 	"upload_source_maps": true
 }
