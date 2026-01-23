@@ -21,7 +21,9 @@ const CA_SYSTEM_PROMPT = `
 You are an AI Chartered Accountant assistant.
 Scope: Direct Tax, GST, Audit, Accounting, ROC, Financial Advisory, Management Accounting, International Tax, Litigation, ESG, IBC.
 Rules:
-- Do NOT hallucinate. Use ONLY provided context.
+- Do NOT hallucinate.
+- Use ONLY provided context.
+- If context is insufficient, say so.
 - Cite sections as (verify).
 - End EVERY response with: "This is professional guidance only. Verify with latest laws, notifications, and ICAI guidance."
 `;
@@ -33,8 +35,7 @@ function detectPromptInjection(q: string): boolean {
 }
 
 function classifyQuery(q: string): "simple" | "complex" {
-  // Expanded keywords to ensure complex model triggers correctly
-  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing|tax treaty|merger|acquisition|scrutiny)/i.test(q)
+  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
     ? "complex"
     : "simple";
 }
@@ -42,25 +43,20 @@ function classifyQuery(q: string): "simple" | "complex" {
 /* -------------------- VECTOR RETRIEVAL -------------------- */
 
 async function retrieveVectors(env: Env, query: string, topK = 5): Promise<VectorChunk[]> {
-  try {
-    const res = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/vectorize/v2/indexes/${env.VECTOR_INDEX}/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.CF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query, top_k: topK }),
-      }
-    );
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/vectorize/v2/indexes/${env.VECTOR_INDEX}/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.CF_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, top_k: topK }),
+    }
+  );
 
-    const json: any = await res.json();
-    return json.success ? json.result.matches : [];
-  } catch (e) {
-    console.error("Vector retrieval failed", e);
-    return [];
-  }
+  const json: any = await res.json();
+  return json.success ? json.result.matches : [];
 }
 
 function buildContext(vectors: VectorChunk[]): string {
@@ -86,7 +82,7 @@ export default {
     }
 
     try {
-      const { query } = (await req.json()) as { query: string };
+      const { query } = await req.json() as { query: string };
 
       if (!query?.trim()) {
         return new Response("Empty query", { status: 400, headers: corsHeaders });
@@ -96,13 +92,7 @@ export default {
         return new Response("Forbidden", { status: 403, headers: corsHeaders });
       }
 
-      // Model selection logic
-      const classification = classifyQuery(query);
-      const model = classification === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
-      
-      // LOGGING: Check your 'wrangler tail' or CF Dashboard logs to see this
-      console.log(`Routing to ${model} based on classification: ${classification}`);
-
+      const model = classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
       const vectors = await retrieveVectors(env, query);
       const context = buildContext(vectors);
 
@@ -114,32 +104,51 @@ export default {
         { role: "user", content: query },
       ];
 
-      /* -------- RUN MODEL WITH NATIVE STREAMING -------- */
-      // We use stream: true to get a ReadableStream immediately
-      const stream = await env.AI.run(model, {
+      /* -------- RUN MODEL -------- */
+      const aiResult = await env.AI.run(model, {
         messages,
         max_tokens: 2200,
         temperature: 0.15,
-        stream: true, 
       });
 
-      // Return the AI stream directly to the client
-      return new Response(stream, {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "X-Model-Used": model, // Useful for debugging on the frontend
+      const answer = (aiResult as any).response ?? "Unable to generate a response.";
+
+      /* -------- SSE STREAM -------- */
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          for (const char of answer) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`));
+            await new Promise(r => setTimeout(r, 5));
+          }
+
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                done: true,
+                sources: vectors.map(v => ({
+                  source: v.metadata.source,
+                  snippet: v.metadata.text_snippet,
+                })),
+              })}\n\n`
+            )
+          );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
         },
       });
 
-    } catch (err: any) {
-      console.error(err);
-      return new Response(JSON.stringify({ error: err.message }), { 
-        status: 500, 
-        headers: corsHeaders 
+      return new Response(stream, {
+        headers: {
+          ...corsHeaders, // Spread CORS headers here
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
       });
+
+    } catch (err) {
+      return new Response("Internal Error", { status: 500, headers: corsHeaders });
     }
   },
 } satisfies ExportedHandler<Env>;
