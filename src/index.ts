@@ -80,25 +80,27 @@ async function retrieveVectors(
   topK = 5
 ): Promise<VectorChunk[]> {
   // 1️⃣ Generate embedding for the query
-  const embeddingRes = await env.AI.run(
-    "@cf/baai/bge-large-en-v1.5",
-    { text: query }
-  );
+  const embeddingRes = await env.AI.run("@cf/baai/bge-large-en-v1.5", { text: query });
 
   const vector = embeddingRes.data[0];
   console.log("Embedding length:", vector.length);
-  console.log("Embedding :", vector);
+  console.log("Embedding (first 50 values):", vector.slice(0, 50)); // log first 50 for readability
 
-  // 2️⃣ Query Vectorize via binding (NO fetch, NO auth)
+  // 2️⃣ Query Vectorize via binding
   const result = await env.VECTORIZE.query(vector, {
     topK,
     returnMetadata: true
   });
 
-  console.log("Vectorize matches:", result.matches?.length ?? 0);
+  const matches = result.matches ?? [];
+  console.log(`Vectorize matches: ${matches.length}`);
+  matches.forEach((m, i) => {
+    console.log(`Match ${i + 1}: score=${m.score}, metadata keys=${Object.keys(m.metadata || {}).length}`);
+  });
 
-  return result.matches ?? [];
+  return matches;
 }
+
 
 
 
