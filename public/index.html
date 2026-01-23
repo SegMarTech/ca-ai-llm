@@ -7,270 +7,96 @@
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
 
     <style>
         :root {
             --primary: #f6821f;
             --primary-soft: #fff7ed;
-            --primary-hover: #e67e22;
             --sidebar-bg: #111827;
-            --bg-main: #ffffff;
             --bg-chat: #f9fafb;
-            --text-main: #1f2937;
-            --text-muted: #6b7280;
             --border: #e5e7eb;
             --radius-lg: 16px;
-            --radius-md: 12px;
-            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
             --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background: #fff; display: flex; height: 100vh; overflow: hidden; }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-main);
-            color: var(--text-main);
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
+        /* Sidebar */
+        aside { width: 260px; background: var(--sidebar-bg); color: white; display: flex; flex-direction: column; padding: 1.25rem; }
+        .new-chat { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 0.75rem; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; margin-bottom: 2rem; }
 
-        /* --- Sidebar --- */
-        aside {
-            width: 280px;
-            background: var(--sidebar-bg);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            padding: 1.25rem;
-            transition: transform 0.3s ease;
-        }
+        /* Main Chat Area */
+        main { flex: 1; display: flex; flex-direction: column; background: var(--bg-chat); position: relative; }
+        header { padding: 1rem 2rem; background: rgba(255,255,255,0.8); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        
+        #chat-messages { flex: 1; overflow-y: auto; padding: 2rem 15%; display: flex; flex-direction: column; gap: 1.5rem; }
 
-        .new-chat-btn {
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
-            color: white;
-            padding: 0.75rem;
-            border-radius: var(--radius-md);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: background 0.2s;
-            margin-bottom: 1.5rem;
-        }
-
-        .new-chat-btn:hover { background: rgba(255,255,255,0.2); }
-
-        .history-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
-
-        /* --- Main Content --- */
-        main {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-            background: var(--bg-chat);
-        }
-
-        header {
-            padding: 1rem 2rem;
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 10;
-        }
-
-        .brand h1 { font-size: 1.25rem; font-weight: 700; color: var(--text-main); }
-        .brand p { font-size: 0.75rem; color: var(--text-muted); }
-
-        .domain-select {
-            padding: 0.5rem 1rem;
-            border-radius: var(--radius-md);
-            border: 1px solid var(--border);
-            background: white;
-            font-size: 0.85rem;
-            outline: none;
-        }
-
-        /* --- Chat Area --- */
-        #chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 2rem 15%;
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
-
-        .message {
-            display: flex;
-            gap: 1rem;
-            max-width: 900px;
-            animation: fadeIn 0.3s ease;
-        }
-
+        /* Message Bubbles */
+        .message { display: flex; gap: 1rem; max-width: 900px; animation: fadeIn 0.3s ease; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        .avatar {
-            width: 36px; height: 36px; border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-            flex-shrink: 0; font-weight: 600; font-size: 0.8rem;
-        }
-
+        
+        .avatar { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.8rem; flex-shrink: 0; }
         .assistant-message .avatar { background: var(--primary); color: white; }
         .user-message { flex-direction: row-reverse; }
-        .user-message .avatar { background: #e5e7eb; color: var(--text-main); }
+        .user-message .avatar { background: #374151; color: white; }
 
-        .bubble {
-            padding: 1rem 1.25rem;
-            border-radius: var(--radius-lg);
-            font-size: 0.95rem;
-            line-height: 1.6;
-            max-width: 80%;
-            box-shadow: var(--shadow-sm);
-        }
+        .bubble { padding: 1rem 1.25rem; border-radius: var(--radius-lg); font-size: 0.95rem; line-height: 1.6; box-shadow: 0 1px 2px rgba(0,0,0,0.05); max-width: 80%; }
+        .assistant-message .bubble { background: white; border: 1px solid var(--border); }
+        .user-message .bubble { background: var(--primary); color: white; }
 
-        .assistant-message .bubble { background: white; border: 1px solid var(--border); border-top-left-radius: 4px; }
-        .user-message .bubble { background: var(--primary); color: white; border-top-right-radius: 4px; }
-
-        /* --- Quick Actions --- */
-        .quick-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            padding: 1rem;
-            flex-wrap: wrap;
-        }
-        .chip {
-            padding: 0.5rem 1rem;
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .chip:hover { border-color: var(--primary); color: var(--primary); }
-
-        /* --- Input Area --- */
-        .input-container {
-            padding: 1.5rem 15%;
-            background: var(--bg-chat);
-        }
-
-        .input-wrapper {
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 0.75rem 1rem;
-            display: flex;
-            align-items: flex-end;
-            gap: 10px;
-            box-shadow: var(--shadow-md);
-            transition: border-color 0.2s;
-        }
-
-        .input-wrapper:focus-within { border-color: var(--primary); }
-
-        #user-input {
-            flex: 1;
-            border: none;
-            outline: none;
-            padding: 0.5rem 0;
-            font-family: inherit;
-            font-size: 1rem;
-            resize: none;
-            max-height: 200px;
-        }
-
-        .icon-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 5px;
-            border-radius: 6px;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-        }
-
-        .icon-btn:hover { color: var(--primary); background: var(--primary-soft); }
-
-        #send-button {
-            background: var(--primary);
-            color: white;
-            width: 36px; height: 36px;
-            border-radius: 10px;
-            display: flex; align-items: center; justify-content: center;
-        }
+        /* Input Area */
+        .input-container { padding: 1.5rem 15%; background: var(--bg-chat); }
+        .input-wrapper { background: white; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.75rem 1rem; display: flex; align-items: flex-end; gap: 10px; box-shadow: var(--shadow-md); }
+        textarea { flex: 1; border: none; outline: none; padding: 0.5rem 0; font-family: inherit; font-size: 1rem; resize: none; max-height: 200px; }
         
-        #send-button:disabled { background: var(--border); cursor: not-allowed; }
+        .icon-btn { background: none; border: none; color: #6b7280; cursor: pointer; padding: 5px; border-radius: 6px; }
+        .send-btn { background: var(--primary) !important; color: white !important; width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
 
-        footer { text-align: center; font-size: 0.7rem; color: var(--text-muted); padding: 0.5rem; }
-
-        @media (max-width: 800px) {
-            aside { display: none; }
-            #chat-messages, .input-container { padding: 1rem 5%; }
-            .bubble { max-width: 90%; }
-        }
+        .sources-panel { background: #f3f4f6; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 0.8rem; }
+        
+        @media (max-width: 800px) { aside { display: none; } #chat-messages, .input-container { padding: 1rem; } }
     </style>
 </head>
 <body>
 
     <aside>
-        <button class="new-chat-btn"><i data-lucide="plus"></i> New Consultation</button>
-        <p class="history-label">Recent Queries</p>
-        </aside>
+        <button class="new-chat"><i data-lucide="plus"></i> New Chat</button>
+        <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; margin-bottom: 10px;">History</div>
+        <div style="font-size: 0.85rem; color: #9ca3af;">No recent chats</div>
+    </aside>
 
     <main>
         <header>
-            <div class="brand">
-                <h1>CA Sahab</h1>
-                <p>Advanced Tax & Audit Intelligence</p>
+            <div>
+                <h1 style="font-size: 1.1rem; font-weight: 700;">CA Sahab</h1>
+                <p style="font-size: 0.7rem; color: #6b7280;">Income Tax & Audit Expert</p>
             </div>
-            <select id="domain-selector" class="domain-select">
-                <option value="">All Domains</option>
-                <option value="Direct Tax">Direct Tax</option>
-                <option value="Indirect Tax">Indirect Tax</option>
-                <option value="Audit">Audit</option>
+            <select id="domain-selector" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border);">
+                <option>Direct Tax</option>
+                <option>GST</option>
+                <option>Audit</option>
             </select>
         </header>
 
         <div id="chat-messages">
             <div class="message assistant-message">
                 <div class="avatar">AI</div>
-                <div class="bubble">
-                    Hello! I'm your professional CA Assistant. How can I assist with your tax, audit, or compliance matters today?
-                </div>
+                <div class="bubble">Hello! I am your CA Assistant. You can ask me about tax laws, balance sheet analysis, or audit procedures.</div>
             </div>
-        </div>
-
-        <div class="quick-actions">
-            <div class="chip">Deductibility of business expenses</div>
-            <div class="chip">GST ITC Eligibility</div>
-            <div class="chip">Audit Checklists</div>
         </div>
 
         <div class="input-container">
             <div class="input-wrapper">
-                <button class="icon-btn" id="file-button" title="Attach Documents">
-                    <i data-lucide="paperclip"></i>
-                </button>
-                <textarea id="user-input" placeholder="Ask anything about taxation..." rows="1"></textarea>
-                <button class="icon-btn" id="send-button">
-                    <i data-lucide="send-horizontal"></i>
-                </button>
+                <button class="icon-btn" onclick="document.getElementById('file-input').click()"><i data-lucide="paperclip"></i></button>
+                <input type="file" id="file-input" style="display:none">
+                <textarea id="user-input" placeholder="Type your query here..." rows="1"></textarea>
+                <button class="icon-btn send-btn" id="send-button"><i data-lucide="send-horizontal"></i></button>
             </div>
-            <input type="file" id="file-input" style="display:none" />
-            <footer>Verified against current FY 2024-25 laws. Not a substitute for legal advice.</footer>
+            <p style="text-align:center; font-size: 0.7rem; color: #9ca3af; margin-top: 10px;">Professional Guidance Only • Updated for FY 2024-25</p>
         </div>
     </main>
 
@@ -278,31 +104,80 @@
         // Initialize Icons
         lucide.createIcons();
 
-        const userInput = document.getElementById('user-input');
         const chatMessages = document.getElementById('chat-messages');
-        const fileButton = document.getElementById('file-button');
-        const fileInput = document.getElementById('file-input');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
 
-        // Auto-expand textarea
+        // Auto-resize textarea
         userInput.addEventListener('input', function() {
             this.style.height = 'auto';
             this.style.height = (this.scrollHeight) + 'px';
         });
 
-        // Simple Upload Feedback
-        fileButton.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', (e) => {
-            if(e.target.files[0]) {
-                const msg = document.createElement('div');
-                msg.className = 'message user-message';
-                msg.innerHTML = `
-                    <div class="avatar">YOU</div>
-                    <div class="bubble">📄 Attached: ${e.target.files[0].name}</div>
-                `;
-                chatMessages.appendChild(msg);
+        // Send Message Logic
+        async function handleSend() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            // 1. Add User Message to UI
+            appendMessage('user', text);
+            userInput.value = '';
+            userInput.style.height = 'auto';
+
+            // 2. Add Assistant Loading State
+            const { contentDiv, container } = createAssistantPlaceholder();
+            
+            // --- SIMULATION MODE ---
+            // Remove this block when you have a real backend API
+            setTimeout(() => {
+                const responseText = "### Analysis Complete\nBased on the data provided, the **Current Ratio** is healthy. However, you should check the **Section 43B(h)** compliance for MSME payments.\n\n*Would you like me to generate a checklist?*";
+                contentDiv.innerHTML = marked.parse(responseText);
+                addMessageActions(container, responseText);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
-            }
-        });
+            }, 1000);
+            // -----------------------
+        }
+
+        function appendMessage(role, text) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${role}-message`;
+            msgDiv.innerHTML = `
+                <div class="avatar">${role === 'user' ? 'U' : 'AI'}</div>
+                <div class="bubble">${marked.parse(text)}</div>
+            `;
+            chatMessages.appendChild(msgDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function createAssistantPlaceholder() {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message assistant-message';
+            msgDiv.innerHTML = `
+                <div class="avatar">AI</div>
+                <div class="bubble">
+                    <div class="content">Thinking...</div>
+                    <div class="meta" style="margin-top:10px; display:flex; gap:10px;"></div>
+                </div>
+            `;
+            chatMessages.appendChild(msgDiv);
+            return { 
+                contentDiv: msgDiv.querySelector('.content'),
+                container: msgDiv.querySelector('.bubble')
+            };
+        }
+
+        function addMessageActions(container, text) {
+            const meta = container.querySelector('.meta');
+            meta.innerHTML = `
+                <button class="icon-btn" style="font-size:0.7rem; display:flex; align-items:center; gap:4px;" onclick="navigator.clipboard.writeText(\`${text}\`)">
+                    <i data-lucide="copy" style="width:12px"></i> Copy
+                </button>
+            `;
+            lucide.createIcons();
+        }
+
+        sendButton.onclick = handleSend;
+        userInput.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
     </script>
 </body>
 </html>
