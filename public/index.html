@@ -1,12 +1,13 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CA Sahab | AI Tax & Audit Assistant</title>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css" />
 
     <style>
@@ -23,16 +24,22 @@
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-app);
             color: var(--text-main);
+            /* This ensures the body takes exactly the screen height */
             height: 100vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            /* Prevents the whole page from scrolling */
         }
 
         /* Header Navigation */
@@ -75,7 +82,9 @@
             transition: all 0.2s;
         }
 
-        .domain-select:hover { border-color: var(--primary); }
+        .domain-select:hover {
+            border-color: var(--primary);
+        }
 
         /* Main Chat Area */
         .chat-wrapper {
@@ -87,21 +96,30 @@
             margin: 0 auto;
             background: var(--bg-card);
             position: relative;
+            /* CRITICAL: This allows the flex child to shrink and scroll */
+            min-height: 0;
         }
 
         .chat-messages {
             flex: 1;
             overflow-y: auto;
+            /* Enables vertical scrolling */
             padding: 2rem;
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
-            scrollbar-width: thin;
-            scrollbar-color: var(--border) transparent;
+            /* Ensures the scrollbar is always visible when needed */
+            scrollbar-gutter: stable;
         }
 
-        .chat-messages::-webkit-scrollbar { width: 6px; }
-        .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 10px;
+        }
 
         /* Message Bubbles */
         .message {
@@ -112,8 +130,15 @@
         }
 
         @keyframes slideUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .avatar {
@@ -137,8 +162,15 @@
         }
 
         /* Assistant Styling */
-        .assistant-message { align-self: flex-start; }
-        .assistant-message .avatar { background: var(--secondary); color: white; }
+        .assistant-message {
+            align-self: flex-start;
+        }
+
+        .assistant-message .avatar {
+            background: var(--secondary);
+            color: white;
+        }
+
         .assistant-message .msg-body {
             background: #f1f5f9;
             color: var(--text-main);
@@ -146,8 +178,16 @@
         }
 
         /* User Styling */
-        .user-message { align-self: flex-end; flex-direction: row-reverse; }
-        .user-message .avatar { background: var(--primary); color: white; }
+        .user-message {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .user-message .avatar {
+            background: var(--primary);
+            color: white;
+        }
+
         .user-message .msg-body {
             background: var(--primary);
             color: white;
@@ -202,8 +242,14 @@
             transition: 0.2s;
         }
 
-        #send-button:hover { background: var(--primary-dark); }
-        #send-button:disabled { background: var(--text-muted); cursor: not-allowed; }
+        #send-button:hover {
+            background: var(--primary-dark);
+        }
+
+        #send-button:disabled {
+            background: var(--text-muted);
+            cursor: not-allowed;
+        }
 
         /* Helpers */
         .typing-indicator {
@@ -215,11 +261,13 @@
             gap: 8px;
         }
 
-        .typing-indicator.visible { display: flex; }
+        .typing-indicator.visible {
+            display: flex;
+        }
 
         .copy-btn {
             background: transparent;
-            border: 1px solid rgba(0,0,0,0.1);
+            border: 1px solid rgba(0, 0, 0, 0.1);
             padding: 4px 8px;
             font-size: 0.7rem;
             border-radius: 4px;
@@ -229,7 +277,10 @@
             transition: 0.2s;
         }
 
-        .copy-btn:hover { background: #fff; color: var(--primary); }
+        .copy-btn:hover {
+            background: #fff;
+            color: var(--primary);
+        }
 
         .source-toggle {
             display: block;
@@ -243,7 +294,7 @@
         .sources {
             margin-top: 8px;
             padding: 10px;
-            background: rgba(0,0,0,0.03);
+            background: rgba(0, 0, 0, 0.03);
             border-radius: 6px;
             font-size: 0.8rem;
             border-left: 2px solid var(--primary);
@@ -260,61 +311,73 @@
 
         /* Mobile Adjustments */
         @media (max-width: 600px) {
-            header { padding: 1rem; }
-            .chat-messages { padding: 1rem; }
-            .message { max-width: 95%; }
+            header {
+                padding: 1rem;
+            }
+
+            .chat-messages {
+                padding: 1rem;
+            }
+
+            .message {
+                max-width: 95%;
+            }
         }
     </style>
 </head>
+
 <body>
 
-<header>
-    <div class="brand-box">
-        <h1><span>💼</span> CA Sahab</h1>
-        <p>AI Compliance Expert</p>
-    </div>
-    <select id="domain-selector" class="domain-select">
-        <option value="">All Domains</option>
-        <option value="Direct Tax">Direct Tax</option>
-        <option value="Indirect Tax">Indirect Tax</option>
-        <option value="Audit">Audit</option>
-        <option value="Accounting">Accounting</option>
-        <option value="ROC">ROC</option>
-        <option value="Financial Advisory">Financial Advisory</option>
-        <option value="International Tax">International Tax</option>
-        <option value="ESG">ESG</option>
-    </select>
-</header>
+    <header>
+        <div class="brand-box">
+            <h1><span>💼</span> CA Sahab</h1>
+            <p>AI Compliance Expert</p>
+        </div>
+        <select id="domain-selector" class="domain-select">
+            <option value="">All Domains</option>
+            <option value="Direct Tax">Direct Tax</option>
+            <option value="Indirect Tax">Indirect Tax</option>
+            <option value="Audit">Audit</option>
+            <option value="Accounting">Accounting</option>
+            <option value="ROC">ROC</option>
+            <option value="Financial Advisory">Financial Advisory</option>
+            <option value="International Tax">International Tax</option>
+            <option value="ESG">ESG</option>
+        </select>
+    </header>
 
-<div class="chat-wrapper">
-    <div id="chat-messages" class="chat-messages">
-        <div class="message assistant-message">
-            <div class="avatar">AI</div>
-            <div class="msg-body">
-                Hello! I'm your **Chartered Accountant AI assistant**. I can help with tax queries, audit standards, or ROC filings. What's on your mind?
+    <div class="chat-wrapper">
+        <div id="chat-messages" class="chat-messages">
+            <div class="message assistant-message">
+                <div class="avatar">AI</div>
+                <div class="msg-body">
+                    Hello! I'm your **Chartered Accountant AI assistant**. I can help with tax queries, audit standards,
+                    or ROC filings. What's on your mind?
+                </div>
+            </div>
+        </div>
+
+        <div class="typing-indicator" id="typing-indicator">
+            <span>●</span> AI is analyzing...
+        </div>
+
+        <div class="input-area">
+            <div class="input-container">
+                <textarea id="user-input" placeholder="Ask about GST, Income Tax, Section 44AB..." rows="1"
+                    autofocus></textarea>
+                <button id="send-button">Send</button>
             </div>
         </div>
     </div>
 
-    <div class="typing-indicator" id="typing-indicator">
-        <span>●</span> AI is analyzing tax laws...
-    </div>
+    <footer>
+        Disclaimer: For professional guidance only. Cross-verify with the latest Finance Acts and ICAI notifications.
+    </footer>
 
-    <div class="input-area">
-        <div class="input-container">
-            <textarea id="user-input" placeholder="Ask about GST, Income Tax, Section 44AB..." rows="1" autofocus></textarea>
-            <button id="send-button">Send</button>
-        </div>
-    </div>
-</div>
-
-<footer>
-    Disclaimer: For professional guidance only. Cross-verify with the latest Finance Acts and ICAI notifications.
-</footer>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="chat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="chat.js"></script>
 
 </body>
+
 </html>
