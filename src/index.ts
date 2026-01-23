@@ -84,7 +84,6 @@ async function retrieveVectors(
 
   const vector = embeddingRes.data[0];
   console.log("Embedding length:", vector.length);
-  console.log("Embedding (first 50 values):", vector.slice(0, 50)); // log first 50 for readability
 
   // 2️⃣ Query Vectorize via binding
   const result = await env.VECTORIZE.query(vector, {
