@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker – Streaming CA AI Assistant (STABLE)
+ * Cloudflare Worker – Streaming CA AI Assistant (STABLE with CORS)
  */
 
 import { Env, ChatMessage, VectorChunk } from "./types";
@@ -7,23 +7,25 @@ import { Env, ChatMessage, VectorChunk } from "./types";
 const SCOUT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const COMPLEX_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
+/* -------------------- CORS HEADERS -------------------- */
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
 /* -------------------- SYSTEM PROMPT -------------------- */
 
 const CA_SYSTEM_PROMPT = `
 You are an AI Chartered Accountant assistant.
-
-Scope:
-Direct Tax, GST, Audit, Accounting, ROC, Financial Advisory,
-Management Accounting, International Tax, Litigation, ESG, IBC.
-
+Scope: Direct Tax, GST, Audit, Accounting, ROC, Financial Advisory, Management Accounting, International Tax, Litigation, ESG, IBC.
 Rules:
 - Do NOT hallucinate.
 - Use ONLY provided context.
 - If context is insufficient, say so.
 - Cite sections as (verify).
-- End EVERY response with:
-
-"This is professional guidance only. Verify with latest laws, notifications, and ICAI guidance."
+- End EVERY response with: "This is professional guidance only. Verify with latest laws, notifications, and ICAI guidance."
 `;
 
 /* -------------------- SIMPLE GUARDS -------------------- */
@@ -40,11 +42,7 @@ function classifyQuery(q: string): "simple" | "complex" {
 
 /* -------------------- VECTOR RETRIEVAL -------------------- */
 
-async function retrieveVectors(
-  env: Env,
-  query: string,
-  topK = 5
-): Promise<VectorChunk[]> {
+async function retrieveVectors(env: Env, query: string, topK = 5): Promise<VectorChunk[]> {
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/vectorize/v2/indexes/${env.VECTOR_INDEX}/query`,
     {
@@ -57,7 +55,7 @@ async function retrieveVectors(
     }
   );
 
-  const json = await res.json();
+  const json: any = await res.json();
   return json.success ? json.result.matches : [];
 }
 
@@ -71,92 +69,86 @@ function buildContext(vectors: VectorChunk[]): string {
 
 export default {
   async fetch(req: Request, env: Env) {
+    // 1. Handle Preflight OPTIONS request
     if (req.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
+        headers: corsHeaders,
       });
     }
 
     if (new URL(req.url).pathname !== "/api/chat") {
-      return new Response("Not Found", { status: 404 });
+      return new Response("Not Found", { status: 404, headers: corsHeaders });
     }
 
-    const { query } = await req.json();
+    try {
+      const { query } = await req.json() as { query: string };
 
-    if (!query?.trim()) {
-      return new Response("Empty query", { status: 400 });
-    }
+      if (!query?.trim()) {
+        return new Response("Empty query", { status: 400, headers: corsHeaders });
+      }
 
-    if (detectPromptInjection(query)) {
-      return new Response("Forbidden", { status: 403 });
-    }
+      if (detectPromptInjection(query)) {
+        return new Response("Forbidden", { status: 403, headers: corsHeaders });
+      }
 
-    const model =
-      classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
+      const model = classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
+      const vectors = await retrieveVectors(env, query);
+      const context = buildContext(vectors);
 
-    const vectors = await retrieveVectors(env, query);
-    const context = buildContext(vectors);
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `${CA_SYSTEM_PROMPT}\n\nContext (verify):\n${context}`,
+        },
+        { role: "user", content: query },
+      ];
 
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content: `${CA_SYSTEM_PROMPT}\n\nContext (verify):\n${context}`,
-      },
-      { role: "user", content: query },
-    ];
+      /* -------- RUN MODEL -------- */
+      const aiResult = await env.AI.run(model, {
+        messages,
+        max_tokens: 2200,
+        temperature: 0.15,
+      });
 
-    /* -------- 1️⃣ RUN MODEL (NON-STREAMING) -------- */
-    const aiResult = await env.AI.run(model, {
-      messages,
-      max_tokens: 2200,
-      temperature: 0.15,
-    });
+      const answer = (aiResult as any).response ?? "Unable to generate a response.";
 
-    const answer =
-      (aiResult as any).response ??
-      "Unable to generate a response from the model.";
+      /* -------- SSE STREAM -------- */
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          for (const char of answer) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`));
+            await new Promise(r => setTimeout(r, 5));
+          }
 
-    /* -------- 2️⃣ STREAM MANUALLY (SSE) -------- */
-    const encoder = new TextEncoder();
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        for (const char of answer) {
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`)
+            encoder.encode(
+              `data: ${JSON.stringify({
+                done: true,
+                sources: vectors.map(v => ({
+                  source: v.metadata.source,
+                  snippet: v.metadata.text_snippet,
+                })),
+              })}\n\n`
+            )
           );
-          await new Promise(r => setTimeout(r, 5)); // typing effect
-        }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
 
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({
-              done: true,
-              sources: vectors.map(v => ({
-                source: v.metadata.source,
-                snippet: v.metadata.text_snippet,
-              })),
-            })}\n\n`
-          )
-        );
+      return new Response(stream, {
+        headers: {
+          ...corsHeaders, // Spread CORS headers here
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
+      });
 
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
+    } catch (err) {
+      return new Response("Internal Error", { status: 500, headers: corsHeaders });
+    }
   },
 } satisfies ExportedHandler<Env>;
