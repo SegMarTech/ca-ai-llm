@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker – Streaming CA AI Assistant (Optimized for < 1s TTFT)
+ * Cloudflare Worker – Streaming CA AI Assistant (FIXED STREAMING)
  */
 
 import { Env, ChatMessage, VectorChunk } from "./types";
@@ -62,13 +62,12 @@ function detectPromptInjection(q: string): boolean {
 }
 
 function classifyQuery(q: string): "simple" | "complex" {
-  // Broadening the fast-path regex to ensure complex models handle hard tasks
-  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing|penalty|assessment|ind as|gst refund)/i.test(q)
+  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
     ? "complex"
     : "simple";
 }
 
-async function retrieveVectors(env: Env, query: string, topK = 4): Promise<VectorChunk[]> {
+async function retrieveVectors(env: Env, query: string, topK = 5): Promise<VectorChunk[]> {
   const embeddingRes = await env.AI.run("@cf/baai/bge-large-en-v1.5", { text: query });
   const vector = embeddingRes.data[0];
   const result = await env.VECTORIZE.query(vector, { topK, returnMetadata: true });
@@ -87,18 +86,20 @@ function buildContext(vectors: VectorChunk[]): string {
 export default {
   async fetch(req: Request, env: Env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
-    if (new URL(req.url).pathname !== "/api/chat") return new Response("Not Found", { status: 404 });
+    if (new URL(req.url).pathname !== "/api/chat") return new Response("Not Found", { status: 404, headers: corsHeaders });
 
     try {
       const body = await req.json() as { query: string; history?: ChatMessage[] };
       const query = body.query?.trim();
+      const history = Array.isArray(body.history) ? body.history : [];
+
       if (!query) return new Response("Empty query", { status: 400, headers: corsHeaders });
-      if (detectPromptInjection(query)) return new Response("Forbidden", { status: 403 });
+      if (detectPromptInjection(query)) return new Response("Forbidden", { status: 403, headers: corsHeaders });
 
       const model = classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
       const vectors = await retrieveVectors(env, query);
       const context = buildContext(vectors);
-      const trimmedHistory = (body.history || []).slice(-6);
+      const trimmedHistory = history.slice(-6);
 
       const messages: ChatMessage[] = [
         { role: "system", content: `${CA_SYSTEM_PROMPT}\n\nContext (verify):\n${context}` },
@@ -106,46 +107,58 @@ export default {
         { role: "user", content: query },
       ];
 
-      // 1. RUN WITH STREAM: TRUE
-      // This returns a ReadableStream immediately rather than waiting for completion.
-      const aiResponse = await env.AI.run(model, {
+      // Request a native stream from the AI
+      const aiStream = await env.AI.run(model, {
         messages,
         max_tokens: 2200,
         temperature: 0.15,
         stream: true,
-      });
+      }) as ReadableStream;
 
-      // 2. TRANSFORM STREAM FOR SSE FORMATTING
-      // We use a TransformStream to pass through AI tokens and then append metadata at the end.
-      const { readable, writable } = new TransformStream({
-        transform(chunk, controller) {
-          // Pass the raw AI stream chunk directly to the client
-          controller.enqueue(chunk);
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      const transformStream = new TransformStream({
+        async transform(chunk, controller) {
+          const text = decoder.decode(chunk);
+          // Standard Cloudflare SSE chunks arrive as "data: {"response":"..."}"
+          // We extract the text and wrap it in your specific UI format
+          const lines = text.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.response) {
+                  // Iterate through characters to maintain your "token" structure
+                  for (const char of data.response) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`));
+                  }
+                }
+              } catch (e) {
+                // Ignore parsing errors for partial chunks
+              }
+            }
+          }
         },
         flush(controller) {
-          // Append sources and the [DONE] signal once the AI is finished
-          const encoder = new TextEncoder();
-          const footer = {
+          // Send final metadata exactly as your UI expects
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             done: true,
             sources: vectors.map(v => ({
               source: v.metadata.source,
               snippet: v.metadata.text_snippet,
             })),
-          };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(footer)}\n\n`));
+          })}\n\n`));
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         }
       });
 
-      // Pipe the AI result into our transformer
-      aiResponse.pipeTo(writable);
-
-      return new Response(readable, {
+      return new Response(aiStream.pipeThrough(transformStream), {
         headers: {
           ...corsHeaders,
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
+          Connection: "keep-alive",
         },
       });
 
