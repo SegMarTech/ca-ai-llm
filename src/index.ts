@@ -66,13 +66,13 @@ function detectPromptInjection(q: string): boolean {
   return /(ignore system|bypass|act as)/i.test(q);
 }
 
-/*function classifyQuery(q: string): "simple" | "complex" {
+function classifyQuery(q: string): "simple" | "complex" {
   return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
     ? "complex"
     : "simple";
-}*/
+}
 
-async function classifyQuery(query: string, env: Env): Promise<"simple" | "complex"> {
+/*async function classifyQuery(query: string, env: Env): Promise<"simple" | "complex"> {
   // 1️⃣ Quick keyword check (fast path)
   const complexKeywords = [
     "appeal","itat","audit","notice","litigation","computation","transfer pricing",
@@ -109,7 +109,7 @@ async function classifyQuery(query: string, env: Env): Promise<"simple" | "compl
     console.error("AI classification failed, defaulting to simple:", err);
     return "simple"; // fail-safe
   }
-}
+}*/
 
 
 /* -------------------- VECTOR RETRIEVAL -------------------- */
