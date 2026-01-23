@@ -86,6 +86,7 @@ async function retrieveVectors(
   );
 
   const vector = embeddingRes.data[0];
+  console.log("Embedding length:", vector.length);
 
   // 2️⃣ Query Vectorize using the vector
   const res = await fetch(
@@ -105,6 +106,7 @@ async function retrieveVectors(
   );
 
   const json: any = await res.json();
+  console.log("Vectorize response:", json);
 
   return json.success ? json.result.matches : [];
 }
