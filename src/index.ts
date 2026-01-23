@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker – Streaming CA AI Assistant (FIXED STREAMING)
+ * Cloudflare Worker – Streaming CA AI Assistant (FIXED NUMBERS & STREAMING)
  */
 
 import { Env, ChatMessage, VectorChunk } from "./types";
@@ -30,7 +30,7 @@ Scope:
 - Foreign Trade Policy (FTP), FEMA & related procedures
 
 Response Rules:
-- Prioritize accuracy over verbosity.
+- Prioritize accuracy with details.
 - Use statutory provisions, rules, circulars, and established principles.
 - If exact section or latest notification is uncertain, clearly mark it as "(verify)".
 - Do NOT invent sections, rates, dates, case names, or thresholds.
@@ -74,13 +74,6 @@ async function retrieveVectors(env: Env, query: string, topK = 5): Promise<Vecto
   return result.matches ?? [];
 }
 
-function buildContext(vectors: VectorChunk[]): string {
-  return vectors
-    .map(v => v.metadata.text_snippet || v.metadata.text || "")
-    .filter(Boolean)
-    .join("\n---\n");
-}
-
 /* -------------------- WORKER -------------------- */
 
 export default {
@@ -98,7 +91,7 @@ export default {
 
       const model = classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
       const vectors = await retrieveVectors(env, query);
-      const context = buildContext(vectors);
+      const context = vectors.map(v => v.metadata.text_snippet || v.metadata.text || "").join("\n---\n");
       const trimmedHistory = history.slice(-6);
 
       const messages: ChatMessage[] = [
@@ -107,7 +100,6 @@ export default {
         { role: "user", content: query },
       ];
 
-      // Request a native stream from the AI
       const aiStream = await env.AI.run(model, {
         messages,
         max_tokens: 2200,
@@ -117,38 +109,49 @@ export default {
 
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
+      let buffer = ""; // Buffer to handle partial chunks
 
       const transformStream = new TransformStream({
-        async transform(chunk, controller) {
-          const text = decoder.decode(chunk);
-          // Standard Cloudflare SSE chunks arrive as "data: {"response":"..."}"
-          // We extract the text and wrap it in your specific UI format
-          const lines = text.split("\n");
+        transform(chunk, controller) {
+          buffer += decoder.decode(chunk, { stream: true });
+          const lines = buffer.split("\n");
+          
+          // Keep the last partial line in the buffer
+          buffer = lines.pop() || "";
+
           for (const line of lines) {
-            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+            const cleanLine = line.trim();
+            if (!cleanLine || cleanLine === "data: [DONE]") continue;
+
+            if (cleanLine.startsWith("data: ")) {
               try {
-                const data = JSON.parse(line.slice(6));
-                if (data.response) {
-                  // Iterate through characters to maintain your "token" structure
-                  for (const char of data.response) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`));
+                const jsonStr = cleanLine.slice(6);
+                const parsed = JSON.parse(jsonStr);
+                
+                if (parsed.response) {
+                  // Send every character (including numbers) as a separate token object
+                  for (const char of parsed.response) {
+                    const payload = `data: ${JSON.stringify({ token: char })}\n\n`;
+                    controller.enqueue(encoder.encode(payload));
                   }
                 }
               } catch (e) {
-                // Ignore parsing errors for partial chunks
+                // If parsing fails, it's a partial JSON; put it back in buffer
+                buffer = line + "\n" + buffer;
               }
             }
           }
         },
         flush(controller) {
-          // Send final metadata exactly as your UI expects
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+          // Final metadata payload
+          const footer = {
             done: true,
             sources: vectors.map(v => ({
               source: v.metadata.source,
               snippet: v.metadata.text_snippet,
             })),
-          })}\n\n`));
+          };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(footer)}\n\n`));
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         }
       });
@@ -158,7 +161,7 @@ export default {
           ...corsHeaders,
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          Connection: "keep-alive",
+          "Connection": "keep-alive",
         },
       });
 
