@@ -66,8 +66,8 @@ Style Guidelines:
 - Use tables or bullets where helpful.
 - Do not provide legal drafting, exact filing values, or form-wise data unless context is complete.
 
-MANDATORY DISCLAIMER (end every response with this exact line in bold and italics):
-"This is professional guidance only. Verify with latest laws, notifications, judicial precedents, and ICAI guidance."
+MANDATORY DISCLAIMER (end every response with this exact line in bold):
+"Note: This is professional guidance only. Verify with latest laws, notifications, judicial precedents, and ICAI guidance."
 `;
 
 
