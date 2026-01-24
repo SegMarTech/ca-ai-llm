@@ -5,7 +5,7 @@
 import { Env, ChatMessage, VectorChunk } from "./types";
 
 const SCOUT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
-const COMPLEX_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const COMPLEX_MODEL = "@cf/openai/gpt-oss-120b";
 
 /* -------------------- CORS HEADERS -------------------- */
 
