@@ -1,13 +1,12 @@
 /**
  * Cloudflare Worker – Streaming CA AI Assistant (WITH HISTORY + CORS)
+ * (Functionality unchanged; single-model enforced)
  */
 
 import { Env, ChatMessage, VectorChunk } from "./types";
 
-const SCOUT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
-//const SCOUT_MODEL = "@cf/openai/gpt-oss-120b";
-//const COMPLEX_MODEL = "@cf/openai/gpt-oss-120b";
-const COMPLEX_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+/** ✅ Use ONLY one model as requested */
+const MODEL = "@cf/openai/gpt-oss-120b";
 
 /* -------------------- CORS HEADERS -------------------- */
 
@@ -72,19 +71,11 @@ MANDATORY DISCLAIMER (end every response with this exact line in bold):
 "Note: This is professional guidance only. Verify with latest laws, notifications, judicial precedents, and ICAI guidance."
 `;
 
-
 /* -------------------- SIMPLE GUARDS -------------------- */
 
 function detectPromptInjection(q: string): boolean {
   return /(ignore system|bypass|act as)/i.test(q);
 }
-
-function classifyQuery(q: string): "simple" | "complex" {
-  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
-    ? "complex"
-    : "simple";
-}
-
 
 /* -------------------- VECTOR RETRIEVAL -------------------- */
 
@@ -96,30 +87,29 @@ async function retrieveVectors(
   // 1️⃣ Generate embedding for the query
   const embeddingRes = await env.AI.run("@cf/baai/bge-large-en-v1.5", { text: query });
 
-  const vector = embeddingRes.data[0];
-  console.log("Embedding length:", vector.length);
+  const vector = (embeddingRes as any).data?.[0];
+  console.log("Embedding length:", vector?.length);
 
   // 2️⃣ Query Vectorize via binding
   const result = await env.VECTORIZE.query(vector, {
     topK,
-    returnMetadata: true
+    returnMetadata: true,
   });
 
   const matches = result.matches ?? [];
   console.log(`Vectorize matches: ${matches.length}`);
   matches.forEach((m, i) => {
-    console.log(`Match ${i + 1}: score=${m.score}, metadata keys=${Object.keys(m.metadata || {}).length}`);
+    console.log(
+      `Match ${i + 1}: score=${m.score}, metadata keys=${Object.keys(m.metadata || {}).length}`
+    );
   });
 
   return matches;
 }
 
-
-
-
 function buildContext(vectors: VectorChunk[]): string {
   return vectors
-    .map(v => v.metadata.text_snippet || v.metadata.text || "")
+    .map((v) => v.metadata.text_snippet || v.metadata.text || "")
     .filter(Boolean)
     .join("\n---\n");
 }
@@ -138,7 +128,7 @@ export default {
     }
 
     try {
-      const body = await req.json() as {
+      const body = (await req.json()) as {
         query: string;
         history?: ChatMessage[];
       };
@@ -154,10 +144,6 @@ export default {
       if (detectPromptInjection(query)) {
         return new Response("Forbidden", { status: 403, headers: corsHeaders });
       }
-
-      /* ---- Model selection ---- */
-      const model =
-        classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
 
       /* ---- Vector context ---- */
       const vectors = await retrieveVectors(env, query);
@@ -176,17 +162,16 @@ export default {
         { role: "user", content: query },
       ];
 
-      /* ---- Run model ---- */
-      const aiResult = await env.AI.run(model, {
+      /* ---- Run model (SINGLE MODEL) ---- */
+      const aiResult = await env.AI.run(MODEL, {
         messages,
         max_tokens: 2200,
         temperature: 0.15,
       });
 
-      const answer =
-        (aiResult as any)?.response ?? "Unable to generate a response.";
+      const answer = (aiResult as any)?.response ?? "Unable to generate a response.";
 
-      /* ---- SSE Stream ---- */
+      /* ---- SSE Stream (unchanged shape for UI) ---- */
       const encoder = new TextEncoder();
 
       const stream = new ReadableStream({
@@ -195,14 +180,14 @@ export default {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`)
             );
-            await new Promise(r => setTimeout(r, 5));
+            await new Promise((r) => setTimeout(r, 5));
           }
 
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 done: true,
-                sources: vectors.map(v => ({
+                sources: vectors.map((v) => ({
                   source: v.metadata.source,
                   snippet: v.metadata.text_snippet,
                 })),
@@ -223,7 +208,6 @@ export default {
           Connection: "keep-alive",
         },
       });
-
     } catch (err) {
       console.error("Worker error:", err);
       return new Response("Internal Error", {
