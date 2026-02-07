@@ -1,14 +1,13 @@
 /**
  * Cloudflare Worker – Streaming CA AI Assistant (WITH HISTORY + CORS)
- * ✅ Single model: @cf/openai/gpt-oss-120b
- * ✅ Same SSE response structure (token-by-token + done:true + sources + [DONE])
- * ✅ Keeps overall functionality/flow the same (CORS, /api/chat, vector retrieval, history trim)
  */
 
 import { Env, ChatMessage, VectorChunk } from "./types";
 
-/** ✅ Use ONLY one model */
-const MODEL = "@cf/openai/gpt-oss-120b";
+const SCOUT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+//const SCOUT_MODEL = "@cf/openai/gpt-oss-120b";
+//const COMPLEX_MODEL = "@cf/openai/gpt-oss-120b";
+const COMPLEX_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 /* -------------------- CORS HEADERS -------------------- */
 
@@ -73,11 +72,19 @@ MANDATORY DISCLAIMER (end every response with this exact line in bold):
 "Note: This is professional guidance only. Verify with latest laws, notifications, judicial precedents, and ICAI guidance."
 `;
 
+
 /* -------------------- SIMPLE GUARDS -------------------- */
 
 function detectPromptInjection(q: string): boolean {
   return /(ignore system|bypass|act as)/i.test(q);
 }
+
+function classifyQuery(q: string): "simple" | "complex" {
+  return /(appeal|itat|audit|notice|litigation|computation|transfer pricing)/i.test(q)
+    ? "complex"
+    : "simple";
+}
+
 
 /* -------------------- VECTOR RETRIEVAL -------------------- */
 
@@ -89,74 +96,33 @@ async function retrieveVectors(
   // 1️⃣ Generate embedding for the query
   const embeddingRes = await env.AI.run("@cf/baai/bge-large-en-v1.5", { text: query });
 
-  const vector = (embeddingRes as any)?.data?.[0];
-  console.log("Embedding length:", vector?.length);
+  const vector = embeddingRes.data[0];
+  console.log("Embedding length:", vector.length);
 
   // 2️⃣ Query Vectorize via binding
   const result = await env.VECTORIZE.query(vector, {
     topK,
-    returnMetadata: true,
+    returnMetadata: true
   });
 
   const matches = result.matches ?? [];
   console.log(`Vectorize matches: ${matches.length}`);
   matches.forEach((m, i) => {
-    console.log(
-      `Match ${i + 1}: score=${m.score}, metadata keys=${Object.keys(m.metadata || {}).length}`
-    );
+    console.log(`Match ${i + 1}: score=${m.score}, metadata keys=${Object.keys(m.metadata || {}).length}`);
   });
 
   return matches;
 }
 
+
+
+
 function buildContext(vectors: VectorChunk[]): string {
   return vectors
-    .map((v) => v.metadata.text_snippet || v.metadata.text || "")
+    .map(v => v.metadata.text_snippet || v.metadata.text || "")
     .filter(Boolean)
     .join("\n---\n");
 }
-
-/* -------------------- RESPONSES OUTPUT PARSING -------------------- */
-
-function extractText(res: any): string {
-  if (!res) return "";
-  if (typeof res === "string") return res;
-
-  // Prefer Responses API final text
-  if (typeof res.output_text === "string" && res.output_text.trim()) {
-    return res.output_text.trim();
-  }
-
-  // Some runtimes still return `response`
-  if (typeof res.response === "string" && res.response.trim()) {
-    return res.response.trim();
-  }
-
-  // Fallback: ONLY aggregate content from message-like outputs, skip reasoning
-  const out = res.output;
-  if (Array.isArray(out)) {
-    const texts: string[] = [];
-
-    for (const item of out) {
-      // Skip explicit reasoning blocks if present
-      if (item?.type && String(item.type).toLowerCase().includes("reason")) continue;
-
-      // Only accept assistant message content blocks
-      const content = item?.content;
-      if (!Array.isArray(content)) continue;
-
-      for (const c of content) {
-        const t = c?.text;
-        if (typeof t === "string") texts.push(t);
-      }
-    }
-
-    return texts.join("").trim();
-  }
-
-  return "";
-}
-
 
 /* -------------------- WORKER -------------------- */
 
@@ -172,7 +138,7 @@ export default {
     }
 
     try {
-      const body = (await req.json()) as {
+      const body = await req.json() as {
         query: string;
         history?: ChatMessage[];
       };
@@ -189,6 +155,10 @@ export default {
         return new Response("Forbidden", { status: 403, headers: corsHeaders });
       }
 
+      /* ---- Model selection ---- */
+      const model =
+        classifyQuery(query) === "simple" ? SCOUT_MODEL : COMPLEX_MODEL;
+
       /* ---- Vector context ---- */
       const vectors = await retrieveVectors(env, query);
       const context = buildContext(vectors);
@@ -196,7 +166,7 @@ export default {
       /* ---- Trim history (last 3 turns = 6 messages) ---- */
       const trimmedHistory = history.slice(-6);
 
-      /* ---- Build messages (keep same structure as earlier) ---- */
+      /* ---- Build messages ---- */
       const messages: ChatMessage[] = [
         {
           role: "system",
@@ -206,25 +176,17 @@ export default {
         { role: "user", content: query },
       ];
 
-      /**
-       * ---- Run model (gpt-oss-120b expects Responses-style payload) ----
-       * Convert chat messages -> Responses "input"
-       */
-      const input = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      const aiResult = await env.AI.run(MODEL, {
-        input,
-        // Keep system constraints in the conversation; this helps some runtimes.
-        instructions: "Follow the system message and domain constraints in the conversation.",
-        reasoning: { effort: "medium" },
+      /* ---- Run model ---- */
+      const aiResult = await env.AI.run(model, {
+        messages,
+        max_tokens: 2200,
+        temperature: 0.15,
       });
 
-      const answer = extractText(aiResult) || "Unable to generate a response.";
+      const answer =
+        (aiResult as any)?.response ?? "Unable to generate a response.";
 
-      /* ---- SSE Stream (UI-compatible, unchanged shape) ---- */
+      /* ---- SSE Stream ---- */
       const encoder = new TextEncoder();
 
       const stream = new ReadableStream({
@@ -233,14 +195,14 @@ export default {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ token: char })}\n\n`)
             );
-            await new Promise((r) => setTimeout(r, 5));
+            await new Promise(r => setTimeout(r, 5));
           }
 
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 done: true,
-                sources: vectors.map((v) => ({
+                sources: vectors.map(v => ({
                   source: v.metadata.source,
                   snippet: v.metadata.text_snippet,
                 })),
@@ -261,6 +223,7 @@ export default {
           Connection: "keep-alive",
         },
       });
+
     } catch (err) {
       console.error("Worker error:", err);
       return new Response("Internal Error", {
