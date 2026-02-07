@@ -122,31 +122,41 @@ function extractText(res: any): string {
   if (!res) return "";
   if (typeof res === "string") return res;
 
-  // Common Responses API convenience field
-  if (typeof res.output_text === "string" && res.output_text.trim()) return res.output_text;
+  // Prefer Responses API final text
+  if (typeof res.output_text === "string" && res.output_text.trim()) {
+    return res.output_text.trim();
+  }
 
-  // Some Workers AI bindings may return `response`
-  if (typeof res.response === "string" && res.response.trim()) return res.response;
+  // Some runtimes still return `response`
+  if (typeof res.response === "string" && res.response.trim()) {
+    return res.response.trim();
+  }
 
-  // Fallback: aggregate text blocks from `output`
+  // Fallback: ONLY aggregate content from message-like outputs, skip reasoning
   const out = res.output;
   if (Array.isArray(out)) {
     const texts: string[] = [];
+
     for (const item of out) {
+      // Skip explicit reasoning blocks if present
+      if (item?.type && String(item.type).toLowerCase().includes("reason")) continue;
+
+      // Only accept assistant message content blocks
       const content = item?.content;
-      if (Array.isArray(content)) {
-        for (const c of content) {
-          const t = c?.text;
-          if (typeof t === "string") texts.push(t);
-        }
+      if (!Array.isArray(content)) continue;
+
+      for (const c of content) {
+        const t = c?.text;
+        if (typeof t === "string") texts.push(t);
       }
     }
-    const joined = texts.join("");
-    if (joined.trim()) return joined;
+
+    return texts.join("").trim();
   }
 
   return "";
 }
+
 
 /* -------------------- WORKER -------------------- */
 
